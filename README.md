@@ -15,7 +15,9 @@ This MCP (Model Context Protocol) server enables Claude to control TidalCycles t
 - 🎛️ **Channel management** - Solo, silence, or hush specific channels
 - 💬 **Natural conversation** - Talk to Claude about your music in plain English
 - 🔄 **Real-time feedback** - Immediate pattern evaluation
-- 🚀 **Two modes**: File-based (stable) or Direct GHCi integration (experimental)
+- 🚀 **Dual transport modes**: stdio for Claude Desktop + WebSocket for external clients
+- 🌐 **Network accessible** - Web UIs and remote clients can connect via WebSocket
+- 🔄 **Auto-recovery** - Robust GHCi process management with automatic reconnection
 
 ## 📋 Prerequisites
 
@@ -241,11 +243,15 @@ Get pattern history from the current session.
 ```
 tidal-mcp-server/
 ├── src/
-│   └── index.ts              # Main MCP server implementation
+│   ├── index.ts              # Main MCP server implementation
+│   └── websocket-transport.ts # WebSocket transport layer
 ├── dist/                     # Compiled JavaScript output
 ├── BootTidal.hs             # TidalCycles initialization
 ├── tidal-mcp-output.tidal   # Generated pattern output file
+├── start-websocket.sh       # WebSocket server startup script
+├── test-websocket-client.js # WebSocket connection test
 ├── examples.tidal            # Example patterns
+├── WEBSOCKET-USAGE.md       # WebSocket setup and usage guide
 ├── package.json             # Node.js dependencies
 ├── tsconfig.json            # TypeScript configuration
 ├── README.md                # This file
@@ -356,18 +362,63 @@ tidal-mcp-server/
 
 ## 🗺️ Roadmap
 
-Future enhancements:
+### ✅ Completed Features
 
-- [ ] ✅ Direct GHCi integration (bypass file watching) - **DONE!**
-- [ ] WebSocket-based communication for better reliability
-- [ ] Pattern version control / undo-redo
-- [ ] Real-time audio analysis feedback to Claude
-- [ ] Pattern suggestions based on context
-- [ ] Multi-user collaboration support
-- [ ] Integration with Hydra for visuals
-- [ ] MIDI output support
-- [ ] Pattern library/favorites system
-- [ ] Browser-based UI for pattern visualization
+- **Direct GHCi integration** - Real-time pattern evaluation without file watching
+- **WebSocket transport** - Network-accessible server for web UIs and collaboration
+- **Robust error handling** - GHCi process recovery and connection monitoring
+- **Session logging** - Complete pattern history with timestamps
+
+### 🚀 Next Up (Priority Features)
+
+- **MIDI Controller Input** - Physical knobs/faders control Tidal parameters
+  - MIDI learn mode for easy mapping
+  - Support for popular controllers (Push, Launchpad, etc.)
+  - Macro controls for complex parameter automation
+
+- **Pattern Version Control** - Git-like history for your patterns
+  - Undo/redo system with branching
+  - Save/restore snapshots
+  - Compare pattern versions
+
+- **Browser-based UI** - Real-time pattern visualization
+  - Live waveform display
+  - Channel timeline view
+  - WebSocket integration for multiple UIs
+
+### 🌟 Advanced Features
+
+- **Real-time Audio Analysis** - AI gets audio feedback
+  - Frequency analysis to inform pattern choices
+  - Beat detection for tempo sync
+  - Amplitude monitoring for mix balance
+
+- **AI Pattern Suggestions** - Context-aware recommendations
+  - ML-based pattern generation
+  - Style-specific suggestions (techno, ambient, breaks)
+  - Automatic complementary pattern creation
+
+- **Multi-user Collaboration** - Live coding sessions
+  - Multiple users control different channels
+  - Turn-based jamming modes
+  - Shared pattern library
+
+### 🎨 Creative Integrations
+
+- **Hydra Visual Integration** - Reactive visuals
+  - Auto-generate visuals from audio patterns
+  - Synchronized visual effects with beat events
+  - Live visual coding alongside audio
+
+- **DAW Integration** - Professional workflow
+  - MIDI output to hardware synths
+  - Audio recording of Tidal sessions
+  - Timeline sync with Ableton Live/Logic
+
+- **AI Composition Tools** - Advanced creativity
+  - Generate full track structures
+  - Style transfer between genres
+  - Harmony analysis and suggestions
 
 ## 🤝 Contributing
 

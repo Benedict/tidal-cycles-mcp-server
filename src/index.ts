@@ -9,6 +9,7 @@ import {
 import * as fs from "fs/promises";
 import * as path from "path";
 import { spawn, ChildProcess } from "child_process";
+import { WebSocketServerTransport } from "./websocket-transport.js";
 
 /**
  * TidalCycles MCP Server
@@ -29,6 +30,9 @@ interface TidalConfig {
   bootTidalPath?: string;
   useGhci: boolean;
   logFile?: string;
+  transport: 'stdio' | 'websocket';
+  websocketPort?: number;
+  websocketHost?: string;
 }
 
 interface LogEntry {
@@ -46,6 +50,7 @@ class TidalMCPServer {
   private logFile: string;
   private ghciStreamAlive: boolean = false;
   private isReconnecting: boolean = false;
+  private wsTransport?: WebSocketServerTransport;
 
   constructor(config: TidalConfig) {
     this.config = config;
@@ -316,6 +321,17 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       timestamp: Date.now(),
     });
 
+    // Broadcast to WebSocket clients if using WebSocket transport
+    if (this.wsTransport) {
+      this.wsTransport.broadcast({
+        type: 'pattern_update',
+        channel,
+        pattern,
+        fullPattern,
+        timestamp: Date.now()
+      });
+    }
+
     // Use GHCi if configured, otherwise write to file
     if (this.config.useGhci) {
       await this.sendToGhci(fullPattern);
@@ -342,6 +358,14 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     for (const [channel, state] of this.channels.entries()) {
       state.active = false;
       state.pattern = "";
+    }
+
+    // Broadcast to WebSocket clients
+    if (this.wsTransport) {
+      this.wsTransport.broadcast({
+        type: 'hush',
+        timestamp: Date.now()
+      });
     }
 
     // Use GHCi if configured, otherwise write to file
@@ -654,6 +678,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     const logHeader = `TidalCycles MCP Server - Session Log
 Started: ${new Date().toISOString()}
 Mode: ${this.config.useGhci ? 'Direct GHCi' : 'File-based'}
+Transport: ${this.config.transport}
 Log File: ${this.logFile}
 ================================================================================
 
@@ -666,10 +691,23 @@ Log File: ${this.logFile}
       console.error(`Failed to create log file: ${error}`);
     }
 
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error("TidalCycles MCP Server running on stdio");
-    console.error(`Mode: ${this.config.useGhci ? 'Direct GHCi' : 'File-based'}`);
+    // Choose transport based on configuration
+    if (this.config.transport === 'websocket') {
+      const port = this.config.websocketPort || 8080;
+      const host = this.config.websocketHost || 'localhost';
+
+      this.wsTransport = new WebSocketServerTransport({ port, host });
+      await this.server.connect(this.wsTransport);
+
+      console.error(`TidalCycles MCP Server running on WebSocket ws://${host}:${port}`);
+      console.error(`Mode: ${this.config.useGhci ? 'Direct GHCi' : 'File-based'}`);
+      console.error(`Clients can connect to: ws://${host}:${port}`);
+    } else {
+      const transport = new StdioServerTransport();
+      await this.server.connect(transport);
+      console.error("TidalCycles MCP Server running on stdio");
+      console.error(`Mode: ${this.config.useGhci ? 'Direct GHCi' : 'File-based'}`);
+    }
   }
 }
 
@@ -679,11 +717,19 @@ const useGhci = process.env.TIDAL_USE_GHCI === "true" || process.env.TIDAL_USE_G
 const bootTidalPath = process.env.TIDAL_BOOT_PATH;
 const logFile = process.env.TIDAL_LOG_FILE; // Optional: custom log file path
 
+// Transport configuration
+const transport = (process.env.TIDAL_TRANSPORT as 'stdio' | 'websocket') || 'stdio';
+const websocketPort = process.env.TIDAL_WS_PORT ? parseInt(process.env.TIDAL_WS_PORT) : 8080;
+const websocketHost = process.env.TIDAL_WS_HOST || 'localhost';
+
 const config: TidalConfig = {
   tidalFile,
   bootTidalPath,
   useGhci,
   logFile,
+  transport,
+  websocketPort,
+  websocketHost,
 };
 
 const server = new TidalMCPServer(config);
