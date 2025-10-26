@@ -1,0 +1,248 @@
+-- TidalCycles MCP Server - Example Patterns
+-- Copy these into conversations with Claude or use them as inspiration!
+
+-- =============================================================================
+-- BASIC PATTERNS
+-- =============================================================================
+
+-- Simple drum beat
+d1 $ sound "bd sd bd sd"
+
+-- With gain control
+d1 $ sound "bd sd bd sd" # gain "1.2"
+
+-- Four on the floor with hi-hats
+d1 $ sound "bd*4"
+d2 $ sound "~ sd ~ sd"
+d3 $ sound "hh*8"
+
+-- =============================================================================
+-- EUCLIDEAN RHYTHMS
+-- =============================================================================
+
+-- Euclidean kick pattern (3 hits distributed across 8 steps)
+d1 $ sound "bd(3,8)"
+
+-- Layered euclidean patterns
+d1 $ sound "bd(3,8)"
+d2 $ sound "sd(5,8,2)" -- 5 hits in 8, rotated by 2
+
+-- Complex polyrhythm
+d1 $ sound "bd(3,8) sd(5,8) hh(7,16)"
+
+-- =============================================================================
+-- BASSLINES
+-- =============================================================================
+
+-- Simple bassline with notes
+d1 $ sound "bass2*4" # n "0 3 5 7"
+
+-- With filter sweep
+d1 $ sound "bass2*8" # n "0 0 3 5 7 5 3 0" # lpf (range 200 2000 $ slow 4 $ sine)
+
+-- Acid bass with resonance
+d1 $ sound "bass3*16" 
+   # n "0 0 0 3 5 5 7 10 12 10 7 5 3 3 0 0"
+   # lpf (range 150 2000 $ slow 1 $ sine)
+   # resonance "0.6"
+   # gain "1.5"
+
+-- =============================================================================
+-- MELODIC PATTERNS
+-- =============================================================================
+
+-- Simple arpeggio
+d1 $ sound "superpiano*4" # n "0 3 7 10"
+
+-- Chord progression
+d1 $ sound "superpiano" # n "[60,64,67,71] [62,65,69,72] [64,67,71,74] [65,69,72,76]"
+
+-- Pentatonic melody
+d1 $ sound "superpiano*8" # n "0 2 4 7 9 7 4 2" # gain "0.8" # room "0.5"
+
+-- =============================================================================
+-- EFFECTS
+-- =============================================================================
+
+-- Reverb and delay
+d1 $ sound "sine" # n "60 64 67 71" # room "0.9" # size "0.95" # delay "0.7"
+
+-- Filter sweeps
+d1 $ sound "sine" # n "60 64 67" # lpf (range 200 5000 $ slow 2 $ sine)
+
+-- Bit crushing (lo-fi effect)
+d1 $ sound "bd sd" # crush "3"
+
+-- Panning
+d1 $ sound "hh*8" # pan (slow 2 $ sine)
+
+-- Speed/pitch variation
+d1 $ sound "bd sd" # speed "1 0.8 1.2 0.9"
+
+-- =============================================================================
+-- RANDOMNESS
+-- =============================================================================
+
+-- Random velocity
+d1 $ sound "hh*8" # gain (range 0.6 1.0 $ rand)
+
+-- Random pitch
+d1 $ sound "bd sd" # speed (range 0.95 1.05 $ rand)
+
+-- Random panning
+d1 $ sound "hh*16" # pan (rand)
+
+-- Sometimes add an effect
+d1 $ sound "bd sd" # sometimes (# crush "3")
+
+-- =============================================================================
+-- PATTERN TRANSFORMATIONS
+-- =============================================================================
+
+-- Reverse
+d1 $ rev $ sound "bd sd hh cp"
+
+-- Speed up
+d1 $ fast 2 $ sound "bd sd hh cp"
+
+-- Slow down
+d1 $ slow 2 $ sound "bd sd hh cp"
+
+-- Every 4 cycles, do something
+d1 $ every 4 (fast 2) $ sound "bd sd hh cp"
+
+-- Degrade (randomly remove events)
+d1 $ degrade $ sound "hh*16"
+
+-- =============================================================================
+-- GENRE EXAMPLES
+-- =============================================================================
+
+-- TECHNO
+d1 $ sound "bd*4" # gain "1.8"
+d2 $ sound "~ sd ~ sd" # gain "1.2"
+d3 $ sound "hh*8" # gain "0.8"
+d4 $ sound "bass3*16" # n "0 0 0 3" # lpf "400"
+
+-- JUNGLE / DRUM & BASS
+d1 $ sound "bd ~ bd ~ bd bd ~ bd"
+d2 $ sound "~ ~ sd:1*3 ~"
+d3 $ sound "hh*16" # gain (range 0.5 0.9 $ rand)
+d4 $ sound "bass3*16" # n "0 0 0 3 5 5 7 10 12 10 7 5 3 3 0 0" 
+   # lpf (range 100 3000 $ fast 4 $ sine) # resonance "0.8"
+
+-- AMBIENT
+d1 $ sound "sine" # n "60 64 67 71" # gain "0.8" # room "0.95" # size "0.95" # legato "4"
+d2 $ sound "sine" # n "72 76 79 83" # gain "0.6" # room "0.9" # delay "0.8"
+d3 $ sound "bass1" # n "36 ~ ~ ~" # gain "0.5" # room "0.7"
+
+-- HIP HOP
+d1 $ sound "bd ~ bd ~ bd ~ ~ ~"
+d2 $ sound "~ ~ ~ ~ sd ~ ~ ~"
+d3 $ sound "hh*8" # gain "0.6 0.8 0.7 0.9 0.6 0.8 0.7 0.85"
+d4 $ sound "bass2*8" # n "0 0 0 ~ 3 3 ~ 5"
+
+-- FUNK
+d1 $ sound "bd ~ bd ~"
+d2 $ sound "~ sd ~ sd"
+d3 $ sound "hh*8" # gain "0.8 1.0 0.7 0.9"
+d4 $ sound "bass2*8" # n "0 ~ 3 ~ 5 ~ 7 5" # speed "0.9 1 1.1 0.95"
+
+-- =============================================================================
+-- CHANNEL MANAGEMENT
+-- =============================================================================
+
+-- Silence a channel
+silence d1
+
+-- Hush everything
+hush
+
+-- Solo a channel (mute all others)
+solo $ d1
+
+-- Unsolo (restore all channels)
+unsolo $ d1
+
+-- =============================================================================
+-- ADVANCED TECHNIQUES
+-- =============================================================================
+
+-- Polymetric patterns (different lengths)
+d1 $ sound "{bd bd bd, sd cp sd cp sd}"
+
+-- Layering patterns with commas
+d1 $ sound "[bd sd, hh*8, ~ cp ~ cp]"
+
+-- Conditional patterns
+d1 $ when ("t(3,8)") (# crush "4") $ sound "bd sd"
+
+-- Chaining effects
+d1 $ sound "bd sd" 
+   # gain "1.2" 
+   # lpf "800" 
+   # room "0.5" 
+   # delay "0.3"
+
+-- Pattern algebra
+d1 $ sound "bd*4" 
+   |+| speed "1 1.2 0.8 1.1"
+   |*| gain "1.2"
+
+-- =============================================================================
+-- TIPS FOR WORKING WITH CLAUDE
+-- =============================================================================
+
+-- Be specific about what you want:
+-- ✓ "Create a glitchy breakbeat with euclidean rhythms"
+-- ✓ "Add a wobbling bassline with a filter sweep"
+-- ✓ "Make the drums more sparse"
+
+-- Ask for modifications:
+-- ✓ "Make it faster"
+-- ✓ "Add some randomness"
+-- ✓ "More aggressive"
+-- ✓ "Louder bass"
+
+-- Request specific styles:
+-- ✓ "Play a jungle beat"
+-- ✓ "Dark techno"
+-- ✓ "Ambient pads"
+-- ✓ "Jazz drums"
+
+-- Manage what's playing:
+-- ✓ "What's playing right now?"
+-- ✓ "Show me the pattern history"
+-- ✓ "Hush everything"
+-- ✓ "Solo the bass"
+
+-- =============================================================================
+-- TROUBLESHOOTING
+-- =============================================================================
+
+-- If a pattern isn't playing:
+-- 1. Check SuperCollider is running: SuperDirt.start
+-- 2. Verify samples are loaded: ~dirt.soundLibrary.buffers.keys.do({|x| x.postln});
+-- 3. Check gain levels aren't too low
+-- 4. Try a simple test: d1 $ sound "bd*4"
+
+-- If you see "late" messages:
+-- - Normal at fast tempos
+-- - Try reducing pattern complexity
+-- - Check system audio isn't overloaded
+
+-- If samples are missing:
+-- - Install Dirt-Samples: Quarks.install("Dirt-Samples");
+-- - Recompile SuperCollider (Cmd+K)
+-- - Restart SuperDirt
+
+-- =============================================================================
+-- RESOURCES
+-- =============================================================================
+
+-- TidalCycles Documentation: https://tidalcycles.org/docs/
+-- Pattern Reference: https://tidalcycles.org/docs/reference/
+-- Community Discord: https://discord.gg/CqWhZEfNbq
+-- TOPLAP: https://toplap.org/
+
+-- Happy live coding! 🌀

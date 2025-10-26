@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "tidal": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/tidal-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "TIDAL_FILE": "/absolute/path/to/tidal-mcp-server/tidal-mcp-output.tidal",
+        "TIDAL_USE_GHCI": "false",
+        "TIDAL_BOOT_PATH": "/absolute/path/to/tidal-mcp-server/BootTidal.hs",
+        "GHCI_PATH": "/usr/local/bin/ghci"
+      }
+    }
+  }
+}

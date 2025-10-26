@@ -1,0 +1,56 @@
+{
+  "name": "tidal-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for TidalCycles live coding - enables Claude AI to control Tidal through conversational interaction",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "tidal-mcp-server": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "prepare": "npm run build",
+    "test": "tsx test.ts",
+    "clean": "rm -rf dist",
+    "rebuild": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "tidalcycles",
+    "tidal",
+    "live-coding",
+    "livecoding",
+    "mcp",
+    "model-context-protocol",
+    "algorave",
+    "music",
+    "supercollider",
+    "superdirt",
+    "algorithmic-composition",
+    "ai-music",
+    "claude",
+    "anthropic"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/tidal-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/tidal-mcp-server/issues"
+  },
+  "homepage": "https://github.com/yourusername/tidal-mcp-server#readme",
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.2"
+  }
+}
