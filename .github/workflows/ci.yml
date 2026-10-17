@@ -2,62 +2,84 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
 jobs:
-  build:
+  test:
     runs-on: ${{ matrix.os }}
-    
+
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        node-version: [18.x, 20.x]
-    
+        node-version: [22.x, 24.x, 26.x]
+
     steps:
-    - uses: actions/checkout@v3
-    
+    - uses: actions/checkout@v5
+
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v5
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
-    
+
     - name: Install dependencies
       run: npm ci
-    
-    - name: Build
-      run: npm run build
-    
-    - name: Run tests
-      run: npm test
-      continue-on-error: true  # Tests are optional for now
-    
-    - name: Check TypeScript
-      run: npx tsc --noEmit
-    
-    - name: Lint check (if available)
-      run: npm run lint --if-present
-      continue-on-error: true
 
-  validate-package:
+    - name: Build and test
+      run: npm test
+
+  audit:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v5
 
     - name: Use Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v5
       with:
-        node-version: '20.x'
+        node-version: 24.x
+
+    - name: Check for security vulnerabilities
+      run: npm audit --audit-level=high
+
+  tidal:
+    # Type-checks every command the server sends, and every palette entry,
+    # against a real Tidal install. Nothing is played.
+    runs-on: ubuntu-latest
+    env:
+      TIDAL_VERSION: 1.10.3
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Use Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: 24.x
+        cache: 'npm'
+
+    - name: Set up GHC
+      id: haskell
+      uses: haskell-actions/setup@v2
+      with:
+        ghc-version: '9.10'
+        cabal-version: latest
+
+    - name: Cache cabal store
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.haskell.outputs.cabal-store }}
+        key: cabal-${{ runner.os }}-ghc-${{ steps.haskell.outputs.ghc-version }}-tidal-${{ env.TIDAL_VERSION }}
+
+    - name: Install Tidal
+      run: |
+        cabal update
+        cabal install --lib tidal-${TIDAL_VERSION}
 
     - name: Install dependencies
       run: npm ci
 
-    - name: Build TypeScript
-      run: npm run build
-
-    - name: Check for security vulnerabilities
-      run: npm audit --audit-level=moderate
-      continue-on-error: true
+    - name: Type-check generated Tidal code
+      run: npm run typecheck:tidal
