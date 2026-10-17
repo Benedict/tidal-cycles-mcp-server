@@ -50,10 +50,10 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.5",
     "@types/ws": "^8.18.2",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
