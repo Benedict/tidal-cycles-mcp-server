@@ -53,6 +53,7 @@ npm run test:websocket
 | `TIDAL_TRANSPORT` | Transport type: `websocket` or `stdio` | `stdio` |
 | `TIDAL_WS_PORT` | WebSocket server port | `8080` |
 | `TIDAL_WS_HOST` | WebSocket server host | `localhost` |
+| `TIDAL_WS_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to connect (e.g. `http://localhost:5173`). Connections with any other `Origin` header are rejected; non-browser clients are unaffected. | _(none)_ |
 
 ## Real-time Updates
 

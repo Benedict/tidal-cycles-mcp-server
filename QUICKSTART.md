@@ -5,7 +5,7 @@
 ### 1. Prerequisites Check
 
 ```bash
-# Check Node.js (need 18+)
+# Check Node.js (need 22+)
 node --version
 
 # Check if TidalCycles is installed

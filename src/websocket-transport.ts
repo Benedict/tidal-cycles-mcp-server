@@ -18,11 +18,22 @@ export class WebSocketServerTransport implements Transport {
   onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
   sessionId?: string;
 
-  constructor(options: { port: number; host?: string }) {
+  constructor(options: { port: number; host?: string; allowedOrigins?: string[] }) {
+    const allowedOrigins = options.allowedOrigins ?? [];
     this.server = new WebSocketServer({
       port: options.port,
       host: options.host || 'localhost',
-      perMessageDeflate: false
+      perMessageDeflate: false,
+      // Browsers don't apply CORS to WebSockets, so without this any web page could
+      // connect to localhost and evaluate arbitrary code. Non-browser clients send
+      // no Origin header and are always allowed.
+      verifyClient: ({ origin }: { origin?: string }) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+          return true;
+        }
+        console.error(`[WebSocket] Rejected connection from origin ${origin}`);
+        return false;
+      }
     });
 
     this.setupServer();
@@ -56,7 +67,7 @@ export class WebSocketServerTransport implements Transport {
   }
 
   private generateClientId(): string {
-    return `client_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `client_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   }
 
   // Transport interface methods

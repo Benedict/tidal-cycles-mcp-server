@@ -153,16 +153,16 @@ d4 $ sound "bass2*8" # n "0 ~ 3 ~ 5 ~ 7 5" # speed "0.9 1 1.1 0.95"
 -- =============================================================================
 
 -- Silence a channel
-silence d1
+d1 silence
 
 -- Hush everything
 hush
 
 -- Solo a channel (mute all others)
-solo $ d1
+solo 1
 
 -- Unsolo (restore all channels)
-unsolo $ d1
+unsolo 1
 
 -- =============================================================================
 -- ADVANCED TECHNIQUES

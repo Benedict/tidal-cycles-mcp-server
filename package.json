@@ -15,9 +15,10 @@
     "start:ws": "TIDAL_TRANSPORT=websocket node dist/index.js",
     "test:websocket": "node test-websocket-client.js",
     "prepare": "npm run build",
-    "test": "tsx test.ts",
+    "test": "npm run build && node --import tsx --test test/*.test.ts",
     "clean": "rm -rf dist",
-    "rebuild": "npm run clean && npm run build"
+    "rebuild": "npm run clean && npm run build",
+    "typecheck:tidal": "tsx scripts/typecheck-tidal.ts"
   },
   "keywords": [
     "tidalcycles",
@@ -37,25 +38,25 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/tidal-mcp-server.git"
+    "url": "https://github.com/Benedict/tidal-cycles-mcp-server.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/tidal-mcp-server/issues"
+    "url": "https://github.com/Benedict/tidal-cycles-mcp-server/issues"
   },
-  "homepage": "https://github.com/yourusername/tidal-mcp-server#readme",
-  "author": "Your Name <your.email@example.com>",
+  "homepage": "https://github.com/Benedict/tidal-cycles-mcp-server#readme",
+  "author": "Benedict Steele",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22"
   },
   "devDependencies": {
-    "@types/node": "^24.9.1",
-    "tsx": "^4.20.6",
+    "@types/node": "^24.19.2",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.20.2",
-    "@types/ws": "^8.18.1",
-    "ws": "^8.18.3"
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "ws": "^8.22.0"
   }
 }
