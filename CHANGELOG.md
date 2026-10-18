@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-line patterns in GHCi mode
 - A missing `ghci` no longer stops the server from connecting
 - Web pages could connect to the WebSocket transport and run code
+- WebSocket replies went to every connected client, and clients' request ids could clash
 
 ## [1.0.0] - 2025-10-25
 

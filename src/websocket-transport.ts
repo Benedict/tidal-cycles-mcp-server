@@ -11,6 +11,10 @@ import { JSONRPCMessage, MessageExtraInfo } from '@modelcontextprotocol/sdk/type
 export class WebSocketServerTransport implements Transport {
   private server: WebSocketServer;
   private clients: Map<string, WebSocketClient> = new Map();
+  // Requests from different clients can share an id, so each gets a
+  // server-wide id on the way in, mapped back on the way out.
+  private nextRequestId = 1;
+  private requests: Map<string | number, { clientId: string; id: string | number }> = new Map();
 
   // Transport interface properties
   onclose?: () => void;
@@ -77,14 +81,24 @@ export class WebSocketServerTransport implements Transport {
   }
 
   async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
-    // Broadcast to all connected clients
-    const messageStr = JSON.stringify(message);
-
-    this.clients.forEach((client, id) => {
-      if (client.isConnected()) {
-        client.send(messageStr);
+    // A response goes only to the client that made the request, with its own id
+    // (An error without an id, e.g. for unparseable input, can't be routed.)
+    if ("id" in message && !("method" in message) && message.id !== undefined) {
+      const route = this.requests.get(message.id);
+      if (!route) {
+        console.error(`[WebSocket] Dropping a response to unknown request ${message.id}`);
+        return;
       }
-    });
+      this.requests.delete(message.id);
+      const client = this.clients.get(route.clientId);
+      if (client?.isConnected()) {
+        client.send(JSON.stringify({ ...message, id: route.id }));
+      }
+      return;
+    }
+
+    // Notifications go to every client
+    this.broadcast(message);
   }
 
   async close(): Promise<void> {
@@ -134,9 +148,12 @@ export class WebSocketServerTransport implements Transport {
 
   // Handle message from a specific client
   handleClientMessage(clientId: string, message: JSONRPCMessage): void {
-    if (this.onmessage) {
-      this.onmessage(message);
+    if ("id" in message && "method" in message) {
+      const id = this.nextRequestId++;
+      this.requests.set(id, { clientId, id: message.id });
+      message = { ...message, id };
     }
+    this.onmessage?.(message);
   }
 }
 
@@ -222,156 +239,5 @@ class WebSocketClient {
 
   isConnected(): boolean {
     return this.ws.readyState === WebSocket.OPEN;
-  }
-}
-
-/**
- * WebSocket client for connecting to the server
- */
-export class WebSocketClientTransport implements Transport {
-  private ws?: WebSocket;
-  private url: string;
-  private reconnectAttempts = 0;
-  private maxReconnectDelay = 30000;
-  private reconnectTimer?: NodeJS.Timeout;
-  private messageHandler?: (message: any) => Promise<any>;
-  private closeHandler?: () => void;
-  private errorHandler?: (error: Error) => void;
-  private connected = false;
-
-  constructor(url: string) {
-    this.url = url;
-  }
-
-  async start(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.connect()
-        .then(() => resolve())
-        .catch(reject);
-    });
-  }
-
-  private async connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        this.ws = new WebSocket(this.url);
-
-        this.ws.on('open', () => {
-          console.error(`[WebSocket Client] Connected to ${this.url}`);
-          this.connected = true;
-          this.reconnectAttempts = 0;
-
-          // Start heartbeat
-          this.startHeartbeat();
-          resolve();
-        });
-
-        this.ws.on('message', async (data: WebSocket.Data) => {
-          try {
-            const message = JSON.parse(data.toString());
-
-            // Handle pong response
-            if (message.type === 'pong') {
-              return;
-            }
-
-            // Handle regular messages
-            if (this.messageHandler) {
-              await this.messageHandler(message);
-            }
-          } catch (error) {
-            console.error('[WebSocket Client] Error handling message:', error);
-          }
-        });
-
-        this.ws.on('close', () => {
-          console.error('[WebSocket Client] Connection closed');
-          this.connected = false;
-          this.scheduleReconnect();
-          this.closeHandler?.();
-        });
-
-        this.ws.on('error', (error) => {
-          console.error('[WebSocket Client] Connection error:', error);
-          this.connected = false;
-          this.errorHandler?.(error);
-
-          if (this.reconnectAttempts === 0) {
-            reject(error);
-          }
-        });
-
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  private startHeartbeat() {
-    // Send ping every 30 seconds
-    const heartbeatInterval = setInterval(() => {
-      if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
-        this.send({ type: 'ping', timestamp: Date.now() });
-      } else {
-        clearInterval(heartbeatInterval);
-      }
-    }, 30000);
-  }
-
-  private scheduleReconnect() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-    }
-
-    const delay = Math.min(
-      1000 * Math.pow(2, this.reconnectAttempts),
-      this.maxReconnectDelay
-    );
-
-    console.error(`[WebSocket Client] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1})`);
-
-    this.reconnectTimer = setTimeout(async () => {
-      this.reconnectAttempts++;
-      try {
-        await this.connect();
-      } catch (error) {
-        console.error('[WebSocket Client] Reconnection failed:', error);
-      }
-    }, delay);
-  }
-
-  async send(message: any): Promise<void> {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message));
-    } else {
-      throw new Error('WebSocket not connected');
-    }
-  }
-
-  onMessage(handler: (message: any) => Promise<any>): void {
-    this.messageHandler = handler;
-  }
-
-  onClose(handler: () => void): void {
-    this.closeHandler = handler;
-  }
-
-  onError(handler: (error: Error) => void): void {
-    this.errorHandler = handler;
-  }
-
-  async close(): Promise<void> {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-    }
-
-    if (this.ws) {
-      this.ws.close();
-      this.connected = false;
-    }
-  }
-
-  isConnected(): boolean {
-    return this.connected && this.ws?.readyState === WebSocket.OPEN;
   }
 }
