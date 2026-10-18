@@ -27,7 +27,8 @@ await client.connect(
       TIDAL_USE_GHCI: "true",
       TIDAL_BOOT_PATH: path.join(root, "BootTidal.hs"),
       TIDAL_FILE: path.join(tmpDir, "out.tidal"),
-      TIDAL_SHARE_SESSION: "true",
+      // Sharing isn't available on Windows
+      TIDAL_SHARE_SESSION: process.platform === "win32" ? "false" : "true",
       TIDAL_SHARE_DIR: path.join(tmpDir, "share"),
     } as Record<string, string>,
     stderr: "ignore",
@@ -61,21 +62,23 @@ try {
   });
 
   // Run the ghci wrapper the way Pulsar would: boot line, highlighted code, a bad line
-  const editor = await new Promise<{ out: string; err: string }>((resolve) => {
-    const child = spawn(path.join(tmpDir, "share", "bin", "ghci"), []);
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (d) => (out += d));
-    child.stderr.on("data", (d) => (err += d));
-    child.on("close", () => resolve({ out, err }));
-    child.stdin.end(
-      [`:script ${path.join(root, "BootTidal.hs")}`, ":{", 'd9 $ s (deltaContext 7 0 "~ ~ ~")', ":}", "d8 $ sound 3", ""].join("\n")
-    );
-  });
-  const shared = /Connected to the Tidal session/.test(editor.out) && /No instance for/.test(editor.err);
-  if (!shared) failures++;
-  console.log(`${shared ? "✓" : "✗"} an editor shares the session through the ghci wrapper${shared ? "" : `\n${editor.out}\n${editor.err}`}`);
-  await check("knows what the editor played", "tidal_get_state", {}, { error: false, text: /d9: s "~ ~ ~"/ });
+  if (process.platform !== "win32") {
+    const editor = await new Promise<{ out: string; err: string }>((resolve) => {
+      const child = spawn(path.join(tmpDir, "share", "bin", "ghci"), []);
+      let out = "";
+      let err = "";
+      child.stdout.on("data", (d) => (out += d));
+      child.stderr.on("data", (d) => (err += d));
+      child.on("close", () => resolve({ out, err }));
+      child.stdin.end(
+        [`:script ${path.join(root, "BootTidal.hs")}`, ":{", 'd9 $ s (deltaContext 7 0 "~ ~ ~")', ":}", "d8 $ sound 3", ""].join("\n")
+      );
+    });
+    const shared = /Connected to the Tidal session/.test(editor.out) && /No instance for/.test(editor.err);
+    if (!shared) failures++;
+    console.log(`${shared ? "✓" : "✗"} an editor shares the session through the ghci wrapper${shared ? "" : `\n${editor.out}\n${editor.err}`}`);
+    await check("knows what the editor played", "tidal_get_state", {}, { error: false, text: /d9: s "~ ~ ~"/ });
+  }
 
   await check("silences the channel", "tidal_silence", { channel: "d9" }, { error: false });
 } finally {

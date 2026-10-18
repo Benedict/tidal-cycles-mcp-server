@@ -90,13 +90,13 @@ claude mcp add tidal \
   -- npx -y tidal-mcp-server
 ```
 
-Use `which ghci` to find `GHCI_PATH`. With ghcup it's usually `~/.ghcup/bin/ghci`.
+Use `which ghci` to find `GHCI_PATH`. With ghcup it's usually `~/.ghcup/bin/ghci`. On Windows, use `where ghci` (with ghcup, usually `C:\ghcup\bin\ghci.exe`).
 
 The server boots Tidal with the `BootTidal.hs` it ships with. To use your own instead, for example the one your editor uses, set `TIDAL_BOOT_PATH`.
 
 ### Playing alongside Claude in your editor
 
-By default, the server's Tidal and your editor's Tidal are separate. You hear both, but `hush` only stops one of them, and Claude can't see what you're playing. To share one Tidal session instead, set `TIDAL_SHARE_SESSION=true` (GHCi mode only, not on Windows).
+By default, the server's Tidal and your editor's Tidal are separate. You hear both, but `hush` only stops one of them, and Claude can't see what you're playing. To share one Tidal session instead, set `TIDAL_SHARE_SESSION=true`. It needs GHCi mode, and it isn't available on Windows yet.
 
 When sharing is on, the server writes a stand-in `ghci` into `~/.tidal-mcp/bin`. Point your editor at that folder; in Pulsar, set the TidalCycles package's **Ghci Path** to `~/.tidal-mcp/bin`. Then:
 
@@ -177,6 +177,7 @@ Each session is also written to `tidal-mcp-session.log`, next to `TIDAL_FILE`, o
 | `GHCI_PATH` | `ghci` | GHCi binary |
 | `TIDAL_FILE` | `./tidal-mcp-output.tidal` | Output file in file mode |
 | `TIDAL_LOG_FILE` | next to `TIDAL_FILE` | Session log |
+| `TIDAL_QUARKS_PATH` | SuperCollider's `downloaded-quarks` folder | Where to find Dirt-Samples and SuperDirt, if SuperCollider keeps them somewhere unusual |
 | `TIDAL_SAMPLE_PATHS` | — | Extra sample folders to check names against, separated by `:` (`;` on Windows). Use the same folders you load with `~dirt.loadSoundFiles` |
 | `TIDAL_SHARE_SESSION` | `false` | `true` to share the server's Tidal with your editor (GHCi mode) |
 | `TIDAL_SHARE_DIR` | `~/.tidal-mcp` | Where the shared-session socket and the `ghci` stand-in go |

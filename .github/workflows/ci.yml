@@ -14,7 +14,7 @@ jobs:
       # Let every combination finish, so one failure doesn't hide the others
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node-version: [22.x, 24.x, 26.x]
 
     steps:
@@ -48,8 +48,16 @@ jobs:
 
   tidal:
     # Type-checks every command the server sends, and every palette entry,
-    # against a real Tidal install. Nothing is played.
-    runs-on: ubuntu-latest
+    # against a real Tidal install, then smoke-tests GHCi mode. Nothing is played.
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash   # the same scripts on Windows (Git Bash) and Linux
     env:
       TIDAL_VERSION: 1.10.3
 

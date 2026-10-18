@@ -28,9 +28,9 @@ after(async () => {
 test("finds the quarks folder for each platform", () => {
   assert.equal(
     defaultQuarksDir("/h", "darwin"),
-    "/h/Library/Application Support/SuperCollider/downloaded-quarks"
+    path.join("/h", "Library", "Application Support", "SuperCollider", "downloaded-quarks")
   );
-  assert.equal(defaultQuarksDir("/h", "linux"), "/h/.local/share/SuperCollider/downloaded-quarks");
+  assert.equal(defaultQuarksDir("/h", "linux"), path.join("/h", ".local", "share", "SuperCollider", "downloaded-quarks"));
 });
 
 test("reads banks, sample counts and synths", () => {

@@ -68,7 +68,7 @@ function readSynths(superDirt: string, synths: Set<string>): void {
 }
 
 export function loadSoundLibrary(options: { quarksDir?: string; extraPaths?: string[] } = {}): SoundLibrary {
-  const quarksDir = options.quarksDir ?? defaultQuarksDir();
+  const quarksDir = options.quarksDir ?? (process.env.TIDAL_QUARKS_PATH || defaultQuarksDir());
   const banks = new Map<string, number>();
   const synths = new Set<string>();
   const sources: string[] = [];
