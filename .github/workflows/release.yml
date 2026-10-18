@@ -44,8 +44,19 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
+    # If this version was published by hand (e.g. the very first release,
+    # before trusted publishing could be set up), skip to the GitHub release
+    - name: Check whether this version is already on npm
+      id: published
+      run: |
+        if npm view "$(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")" version >/dev/null 2>&1; then
+          echo "already=true" >> "$GITHUB_OUTPUT"
+          echo "Already on npm; skipping publish."
+        fi
+
     # prepublishOnly builds and runs the tests first
     - name: Publish
+      if: steps.published.outputs.already != 'true'
       run: npm publish --provenance --access public
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
