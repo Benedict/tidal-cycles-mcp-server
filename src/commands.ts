@@ -30,3 +30,8 @@ export const HUSH_COMMAND = "hush";
 export function ghciBlock(code: string): string {
   return code.includes("\n") ? `:{\n${code}\n:}` : code;
 }
+
+// Tidal measures tempo in cycles per second; this assumes four beats per cycle
+export function tempoCommand(bpm: number): string {
+  return `setcps (${bpm}/60/4)`;
+}

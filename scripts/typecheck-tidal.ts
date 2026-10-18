@@ -15,6 +15,7 @@ import {
   ghciBlock,
   silenceCommand,
   soloCommand,
+  tempoCommand,
   unsoloCommand,
 } from "../src/commands.js";
 import { composePattern, setLayer, Layer } from "../src/layers.js";
@@ -41,12 +42,15 @@ const checks: Check[] = [
   io("solo", soloCommand("d2")),
   io("unsolo", unsoloCommand(["d2", "d4"])),
   io("hush", HUSH_COMMAND),
+  io("tempo", tempoCommand(128.5)),
   io("composed layers", evalCommand("d1", composePattern(layered))),
   io("multi-line eval", evalCommand("d1", 'every 2 (fast 2)\n  $ s "bd sd"')),
   ...Object.entries(PALETTE_TRANSFORMS).flatMap(([group, entries]) =>
     entries.map((e) => ({ label: `transform/${group}`, expression: e, type: "ControlPattern -> ControlPattern" }))
   ),
-  ...PALETTE_SOURCES.map((e) => ({ label: "source", expression: e, type: "ControlPattern" })),
+  ...Object.entries(PALETTE_SOURCES).flatMap(([group, entries]) =>
+    entries.map((e) => ({ label: `source/${group}`, expression: e, type: "ControlPattern" }))
+  ),
   ...Object.entries(PALETTE_CONTROLS).flatMap(([group, entries]) =>
     entries.map((e) => ({ label: `control/${group}`, expression: e, type: "ControlPattern" }))
   ),
