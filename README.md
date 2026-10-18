@@ -79,6 +79,20 @@ Use `which ghci` to find `GHCI_PATH`. With ghcup it's usually `~/.ghcup/bin/ghci
 
 The server boots Tidal with the `BootTidal.hs` it ships with. To use your own instead, for example the one your editor uses, set `TIDAL_BOOT_PATH`.
 
+### Playing alongside Claude in your editor
+
+By default, the server's Tidal and your editor's Tidal are separate. You hear both, but `hush` only stops one of them, and Claude can't see what you're playing. To share one Tidal session instead, set `TIDAL_SHARE_SESSION=true` (GHCi mode only, not on Windows).
+
+When sharing is on, the server writes a stand-in `ghci` into `~/.tidal-mcp/bin`. Point your editor at that folder; in Pulsar, set the TidalCycles package's **Ghci Path** to `~/.tidal-mcp/bin`. Then:
+
+- Your code runs in the server's Tidal, so there's one `hush` and one clock.
+- What you play shows up in `tidal_get_state`, so Claude can play along with it.
+- Your errors appear in your editor's console, and Claude's go back to Claude.
+- Your editor's `:script BootTidal.hs` is skipped, because the server has already booted Tidal. Use `TIDAL_BOOT_PATH` to make the server use your boot file instead.
+- When the server isn't running, the stand-in runs your real `ghci`, so your editor still works on its own.
+
+The connection is a socket in `~/.tidal-mcp` that only your user can open.
+
 ### File mode
 
 Nothing runs GHCi for you. Each tool call overwrites `TIDAL_FILE` with the latest command, and you evaluate it yourself, for example from an editor with Tidal support.
@@ -149,6 +163,8 @@ Each session is also written to `tidal-mcp-session.log`, next to `TIDAL_FILE`, o
 | `TIDAL_FILE` | `./tidal-mcp-output.tidal` | Output file in file mode |
 | `TIDAL_LOG_FILE` | next to `TIDAL_FILE` | Session log |
 | `TIDAL_SAMPLE_PATHS` | — | Extra sample folders to check names against, separated by `:` (`;` on Windows). Use the same folders you load with `~dirt.loadSoundFiles` |
+| `TIDAL_SHARE_SESSION` | `false` | `true` to share the server's Tidal with your editor (GHCi mode) |
+| `TIDAL_SHARE_DIR` | `~/.tidal-mcp` | Where the shared-session socket and the `ghci` stand-in go |
 | `TIDAL_CTRL_PORT` | the boot file's `cCtrlPort`, else 6010 | Tidal's control port, for `tidal_set_control` |
 | `TIDAL_CTRL_HOST` | `127.0.0.1` | Host for the control port |
 | `TIDAL_TRANSPORT` | `stdio` | `websocket` to serve MCP over WebSocket instead |
