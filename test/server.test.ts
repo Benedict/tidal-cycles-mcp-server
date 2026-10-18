@@ -60,6 +60,11 @@ after(async () => {
 test("lists all tools", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
+    "strudel_get_state",
+    "strudel_hush",
+    "strudel_remove_block",
+    "strudel_set_block",
+    "strudel_set_tempo",
     "tidal_autopilot",
     "tidal_eval",
     "tidal_get_history",

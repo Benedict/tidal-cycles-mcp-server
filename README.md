@@ -120,6 +120,17 @@ Nothing runs GHCi for you. Each tool call overwrites `TIDAL_FILE` with the lates
 
 The file only ever holds the most recent command. Use file mode when you want to see and approve each command before it plays.
 
+## The control page and Strudel
+
+Set `TIDAL_UI_PORT` (for example `7070`) and the server also serves two web pages:
+
+- **`http://localhost:7070/`, the control page:** what's playing on each channel, with each layer, plus the tempo, controls, autopilot and Tidal's status. It has a big **Hush** button, autopilot start/pause/stop, and **Restart Tidal**. It updates live.
+- **`http://localhost:7070/strudel`, a Strudel page:** it plays [Strudel](https://strudel.cc) programs that Claude builds with the `strudel_*` tools, using the same Dirt-Samples. Click **Start sound** once, because browsers only play audio after a click. Anyone who opens the page hears the same program on their own device.
+
+Strudel programs are built from named blocks, like layers: `strudel_set_block` adds or replaces one, and every block plays at once. If Strudel rejects the code, Claude gets the error, and what was playing keeps playing. A page that opens later picks up the current program.
+
+The pages listen on `127.0.0.1`. For an event where the audience opens the Strudel page on their phones, set `TIDAL_UI_HOST=0.0.0.0` and share `http://<your-ip>:7070/strudel`. Other machines can watch and listen, but only this machine can press the buttons. The pages load Strudel from unpkg.com and the samples from GitHub, so the browser needs internet access.
+
 ## Tools
 
 | Tool | Arguments | What it does |
@@ -137,6 +148,11 @@ The file only ever holds the most recent command. Use file mode when you want to
 | `tidal_autopilot` | `action` (`start`, `pause`, `stop`, `status`), optional timing | Keeps layered channels changing between turns |
 | `tidal_palette` | — | Lists Tidal transforms, sources and controls that combine well |
 | `tidal_set_control` | `name`, `value`, `seconds` (optional) | Changes a value that patterns read with `cF`/`cS`, without re-evaluating; `seconds` glides to it |
+| `strudel_set_block` | `name`, `code` | Adds or replaces a block in the Strudel program (needs `TIDAL_UI_PORT` and an open Strudel page) |
+| `strudel_remove_block` | `name` | Removes a block; removing the last one hushes Strudel |
+| `strudel_set_tempo` | `bpm` | Sets Strudel's tempo (`setcpm(bpm/4)`) |
+| `strudel_hush` | — | Stops Strudel and clears its blocks |
+| `strudel_get_state` | — | Shows the program, its blocks, and how many pages are open |
 | `tidal_list_samples` | `filter`, `refresh` (both optional) | Lists the sample banks and synths SuperDirt has installed |
 
 ### Layers
@@ -183,6 +199,8 @@ Each session is also written to `tidal-mcp-session.log`, next to `TIDAL_FILE`, o
 | `TIDAL_SHARE_DIR` | `~/.tidal-mcp` | Where the shared-session socket and the `ghci` stand-in go |
 | `TIDAL_CTRL_PORT` | the boot file's `cCtrlPort`, else 6010 | Tidal's control port, for `tidal_set_control` |
 | `TIDAL_CTRL_HOST` | `127.0.0.1` | Host for the control port |
+| `TIDAL_UI_PORT` | — | Serve the control page and the Strudel page on this port |
+| `TIDAL_UI_HOST` | `127.0.0.1` | Address for the pages; `0.0.0.0` lets other machines watch (only this machine can press buttons) |
 | `TIDAL_TRANSPORT` | `stdio` | `websocket` to serve MCP over WebSocket instead |
 
 For the WebSocket transport and its settings, see [WEBSOCKET-USAGE.md](WEBSOCKET-USAGE.md).

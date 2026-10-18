@@ -9,6 +9,7 @@
   },
   "files": [
     "dist/",
+    "ui/",
     "BootTidal.hs",
     "examples.tidal"
   ],

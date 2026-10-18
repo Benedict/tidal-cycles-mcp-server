@@ -35,6 +35,7 @@ import {
   stripHighlighting,
   writeGhciWrapper,
 } from "./share.js";
+import { UiServer, composeStrudel } from "./ui.js";
 import {
   HUSH_COMMAND,
   evalCommand,
@@ -110,6 +111,11 @@ class TidalMCPServer {
   private hushes = 0;
   private fileWrites: Promise<void> = Promise.resolve();
   private share?: ShareServer;
+  private ui?: UiServer;
+  private tidalLastError?: string;
+  private strudelBlocks: Map<string, string> = new Map();
+  private strudelBpm?: number;
+  private strudelLastError?: string;
 
   constructor(config: TidalConfig) {
     this.config = config;
@@ -403,6 +409,50 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
           },
         },
         {
+          name: "strudel_set_block",
+          description:
+            "Add or replace a named block in the Strudel program, which plays on every open Strudel page " +
+            "(the server's web page at /strudel; needs TIDAL_UI_PORT). Each block is one Strudel pattern in " +
+            "JavaScript syntax, e.g. s(\"bd*2 [~ sd]\").bank(\"RolandTR909\") or note(\"c e g\").s(\"piano\").fast(2). " +
+            "Blocks play together. If Strudel rejects the code, you get its error and nothing changes.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Block name, e.g. \"drums\"; reusing a name replaces that block" },
+              code: { type: "string", description: "One Strudel pattern expression, without $:" },
+            },
+            required: ["name", "code"],
+          },
+        },
+        {
+          name: "strudel_remove_block",
+          description: "Remove a named block from the Strudel program. Removing the last one hushes Strudel.",
+          inputSchema: {
+            type: "object",
+            properties: { name: { type: "string" } },
+            required: ["name"],
+          },
+        },
+        {
+          name: "strudel_set_tempo",
+          description: "Set Strudel's tempo in beats per minute, assuming four beats per cycle (setcpm(bpm/4)).",
+          inputSchema: {
+            type: "object",
+            properties: { bpm: { type: "number", description: "Beats per minute, from 20 to 999" } },
+            required: ["bpm"],
+          },
+        },
+        {
+          name: "strudel_hush",
+          description: "Stop everything in Strudel and clear its blocks.",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "strudel_get_state",
+          description: "Show the Strudel program, its blocks, how many Strudel pages are open, and the page's address.",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
           name: "tidal_palette",
           description: "Get a reference list of Tidal transforms, sources and controls that combine well, grouped by layer kind.",
           inputSchema: {
@@ -550,6 +600,16 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
             return { content: [{ type: "text", text: describeLibrary(this.getSoundLibrary(), filter) }] };
           }
 
+          case "strudel_set_block":
+          case "strudel_remove_block":
+          case "strudel_set_tempo":
+          case "strudel_hush":
+          case "strudel_get_state": {
+            const result = await this.strudelTool(name, args);
+            console.error(`[TOOL RESULT] ${name}: Success`);
+            return result;
+          }
+
           case "tidal_palette": {
             return { content: [{ type: "text", text: PALETTE }] };
           }
@@ -616,6 +676,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         const still = this.channels.get(channel)?.active
           ? `The previous pattern on ${channel} is still playing.`
           : `Nothing changed on ${channel}.`;
+        this.tidalLastError = error.message;
         throw new TidalError(`Tidal rejected the pattern. ${still}\n\n${error.message}`);
       }
       throw error;
@@ -940,6 +1001,182 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     console.error(`[SHARE] Point your editor's ghci path at ${bin} to share this Tidal session`);
   }
 
+  private strudelText(text: string, isError = false) {
+    return { content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) };
+  }
+
+  private async strudelTool(name: string, args: Record<string, unknown>) {
+    const ui = this.ui;
+    if (!ui) {
+      throw new Error("Strudel needs the server's web page. Set TIDAL_UI_PORT (e.g. 7070) and restart the server.");
+    }
+    const pageUrl = `${ui.url}/strudel`;
+
+    if (name === "strudel_get_state") {
+      const program = composeStrudel(this.strudelBlocks, this.strudelBpm);
+      const pages = ui.strudelPageCount();
+      const loading = pages - ui.readyStrudelPageCount();
+      return this.strudelText(
+        `${pages} Strudel page${pages === 1 ? "" : "s"} open at ${pageUrl}` +
+          `${loading > 0 ? ` (${loading} still loading)` : ""}.\n\n` +
+          (this.strudelBlocks.size ? `Program:\n${program}` : "No blocks.") +
+          (this.strudelLastError ? `\n\nLast error: ${this.strudelLastError}` : "")
+      );
+    }
+
+    if (name === "strudel_hush") {
+      ui.hushStrudel();
+      this.strudelBlocks.clear();
+      this.strudelLastError = undefined;
+      await this.logAction("STRUDEL HUSH");
+      return this.strudelText("✓ Strudel hushed.");
+    }
+
+    // The rest change the program: work out the new one, send it, and keep it only if Strudel accepts it
+    const blocks = new Map(this.strudelBlocks);
+    let bpm = this.strudelBpm;
+    let request: string;
+    let rejectedPart = "the program";
+
+    if (name === "strudel_set_block") {
+      const { name: block, code } = args;
+      if (typeof block !== "string" || !/^[\w -]{1,40}$/.test(block)) {
+        throw new Error("Block name must be 1–40 letters, digits, spaces, _ or -");
+      }
+      if (typeof code !== "string" || !code.trim()) throw new Error("Block code must be a non-empty string");
+      blocks.set(block, code.trim().replace(/^\$:\s*/, ""));
+      request = `Set Strudel block "${block}"`;
+      rejectedPart = `the "${block}" block`;
+    } else if (name === "strudel_remove_block") {
+      const block = args.name;
+      if (typeof block !== "string" || !blocks.delete(block)) throw new Error(`No Strudel block named "${block}"`);
+      request = `Remove Strudel block "${block}"`;
+      if (blocks.size === 0) {
+        ui.hushStrudel();
+        this.strudelBlocks = blocks;
+        return this.strudelText(`✓ Removed "${block}". No blocks left, so Strudel is hushed.`);
+      }
+    } else {
+      if (typeof args.bpm !== "number" || !(args.bpm >= 20 && args.bpm <= 999)) {
+        throw new Error("bpm must be a number from 20 to 999");
+      }
+      bpm = args.bpm;
+      request = `Set Strudel tempo to ${bpm} BPM`;
+      if (blocks.size === 0) {
+        this.strudelBpm = bpm;
+        return this.strudelText(`✓ Strudel tempo will be ${bpm} BPM once something plays.`);
+      }
+    }
+
+    if (ui.strudelPageCount() === 0) {
+      throw new Error(`No Strudel page is open. Open ${pageUrl} in a browser and click "Start sound", then try again.`);
+    }
+    const pages = ui.readyStrudelPageCount();
+    if (pages === 0) {
+      throw new Error(
+        "The Strudel page is still loading Strudel and its samples, which can take a little while the first time. Try again in a few seconds."
+      );
+    }
+
+    const program = composeStrudel(blocks, bpm);
+    const result = await ui.sendProgram(program);
+    if (!result) {
+      return this.strudelText(
+        `No Strudel page confirmed the program in time, so it hasn't been recorded as playing. ` +
+          `Check the page at ${pageUrl}, then try again.`,
+        true
+      );
+    }
+    if (!result.ok) {
+      this.strudelLastError = result.error;
+      await this.logAction("STRUDEL REJECTED", `${request}\n${program}\n${result.error}`);
+      return this.strudelText(
+        `Strudel rejected ${rejectedPart}. What was playing is still playing.\n\n${result.error}\n\n` +
+          `(Line numbers count from the top of the whole program:)\n${program}`,
+        true
+      );
+    }
+
+    this.strudelBlocks = blocks;
+    this.strudelBpm = bpm;
+    this.strudelLastError = undefined;
+    await this.logAction("STRUDEL", `${request}\n${program}`);
+    return this.strudelText(`✓ ${request}. Playing on ${pages} page${pages === 1 ? "" : "s"}.\n\n${program}`);
+  }
+
+  /** Everything the control page shows. */
+  private uiSnapshot() {
+    return {
+      mode: this.config.useGhci ? "ghci" : "file",
+      tidal: { running: this.ghci?.alive === true, starting: !!this.ghciStarting, lastError: this.tidalLastError },
+      bpm: this.bpm,
+      channels: Array.from(this.channels.values())
+        .filter((c) => c.active)
+        .map((c) => ({ channel: c.channel, pattern: c.pattern, since: c.timestamp, layers: this.layers.get(c.channel) })),
+      controls: Object.fromEntries(this.controls),
+      autopilot: {
+        status: this.autopilot.status,
+        moving: this.autopilot.activeLayerCount(),
+        settings: this.autopilot.getSettings(),
+      },
+      strudel: {
+        pages: this.ui?.strudelPageCount() ?? 0,
+        blocks: [...this.strudelBlocks].map(([name, code]) => ({ name, code })),
+        program: composeStrudel(this.strudelBlocks, this.strudelBpm),
+        lastError: this.strudelLastError,
+      },
+    };
+  }
+
+  /** The control page's buttons. */
+  private async uiAction(action: string): Promise<string> {
+    switch (action) {
+      case "hush":
+        this.ui?.hushStrudel();
+        this.strudelBlocks.clear();
+        await this.hush();
+        return "Hushed Tidal and Strudel.";
+      case "autopilot_start":
+        this.autopilot.start();
+        return `Autopilot running (${this.autopilot.activeLayerCount()} layers).`;
+      case "autopilot_pause":
+        this.autopilot.pause();
+        return "Autopilot paused.";
+      case "autopilot_stop":
+        this.autopilot.stop();
+        return "Autopilot stopped.";
+      case "restart_tidal": {
+        if (!this.config.useGhci) throw new Error("In file mode, your editor runs Tidal.");
+        // A new Tidal starts silent, so forget what the old one was playing
+        this.autopilot.stop();
+        this.ghci?.stop();
+        for (const state of this.channels.values()) {
+          state.active = false;
+          state.pattern = "";
+        }
+        this.layers.clear();
+        this.soloedChannels.clear();
+        this.tidalLastError = undefined;
+        await this.ensureGhci();
+        await this.logAction("RESTART TIDAL");
+        return "Tidal restarted.";
+      }
+      default:
+        throw new Error(`Unknown action: ${action}`);
+    }
+  }
+
+  private async startUi(port: number): Promise<void> {
+    const ui = new UiServer({
+      host: process.env.TIDAL_UI_HOST || "127.0.0.1",
+      port,
+      pagesDir: path.join(PACKAGE_ROOT, "ui"),
+      callbacks: { snapshot: () => this.uiSnapshot(), action: (name) => this.uiAction(name) },
+    });
+    await ui.start();
+    this.ui = ui;
+  }
+
   private async getState() {
     const activeChannels = Array.from(this.channels.values())
       .filter((c) => c.active)
@@ -1191,6 +1428,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       await this.ensureGhci();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      this.tidalLastError = `Couldn't start Tidal: ${message}`;
       throw new Error(`Couldn't start Tidal: ${message}\nCheck GHCI_PATH and TIDAL_BOOT_PATH.`);
     }
     await this.ghci!.run(code);
@@ -1201,6 +1439,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     this.autopilot.stop();
     for (const timer of this.ramps.values()) clearInterval(timer);
     this.share?.stop();
+    this.ui?.stop();
     this.osc?.close();
     
     if (this.ghci) {
@@ -1251,6 +1490,11 @@ Log File: ${this.logFile}
       await this.server.connect(transport);
       console.error("TidalCycles MCP Server running on stdio");
       console.error(`Mode: ${this.config.useGhci ? 'Direct GHCi' : 'File-based'}`);
+    }
+
+    const uiPort = process.env.TIDAL_UI_PORT;
+    if (uiPort !== undefined && uiPort !== "") {
+      await this.startUi(Number(uiPort)).catch((error) => console.error(`[UI] Couldn't start the web page: ${error.message}`));
     }
 
     // Start Tidal in the background once the client can reach us. If it fails,
