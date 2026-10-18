@@ -35,6 +35,8 @@ export const PALETTE_CONTROLS: Groups = {
   Space: ["pan sine", "pan rand", "room 0.3 # size 0.8", "delay 0.25 # delaytime (1/8) # delayfeedback 0.5"],
   Level: ["gain 1.1", "gain (range 0.8 1.2 sine)"],
   Movement: ["lpf (range 200 4000 $ slow 8 sine)", "speed (range 0.5 2 rand)"],
+  // Read values set with tidal_set_control (the number is the default until it's set)
+  External: ['lpf (cF 1000 "cutoff")', 'gain (cF 1 "level")', 'speed (cF 1 "pitch")', 'vowel (cS "a" "vowel")'],
 };
 
 function renderGroups(groups: Groups): string {

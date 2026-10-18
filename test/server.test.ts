@@ -7,6 +7,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { defaultQuarksDir } from "../src/samples.js";
 import { makeSoundFixture } from "./fixtures/sounds.js";
+import { decodeMessage } from "./fixtures/osc-decode.js";
+import * as dgram from "node:dgram";
 
 // Drives the built server (dist/index.js) over stdio in file mode and checks
 // the Tidal code it writes.
@@ -14,6 +16,9 @@ import { makeSoundFixture } from "./fixtures/sounds.js";
 let client: Client;
 let tmpDir: string;
 let tidalFile: string;
+// Stands in for Tidal's control port
+let controlPort: dgram.Socket;
+const controlMessages: Array<{ address: string; args: Array<string | number> }> = [];
 
 async function call(name: string, args: Record<string, unknown> = {}) {
   const result = await client.callTool({ name, arguments: args });
@@ -31,12 +36,17 @@ before(async () => {
   tidalFile = path.join(tmpDir, "out.tidal");
   // A fake home, so the sample library is the fixture's on every machine
   await makeSoundFixture(defaultQuarksDir(tmpDir));
+  controlPort = dgram.createSocket("udp4");
+  controlPort.on("message", (msg) => controlMessages.push(decodeMessage(msg)));
+  await new Promise<void>((resolve) => controlPort.bind(0, "127.0.0.1", resolve));
   client = new Client({ name: "test-client", version: "1.0.0" });
   await client.connect(
     new StdioClientTransport({
       command: process.execPath,
       args: ["dist/index.js"],
-      env: { ...process.env, TIDAL_FILE: tidalFile, HOME: tmpDir, TIDAL_SAMPLE_PATHS: "" } as Record<string, string>,
+      env: { ...process.env, TIDAL_FILE: tidalFile, HOME: tmpDir, TIDAL_SAMPLE_PATHS: "",
+        TIDAL_CTRL_PORT: String(controlPort.address().port),
+      } as Record<string, string>,
       stderr: "ignore",
     })
   );
@@ -44,6 +54,7 @@ before(async () => {
 
 after(async () => {
   await client.close();
+  controlPort.close();
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -58,6 +69,7 @@ test("lists all tools", async () => {
     "tidal_list_samples",
     "tidal_palette",
     "tidal_remove_layer",
+    "tidal_set_control",
     "tidal_set_layer",
     "tidal_set_tempo",
     "tidal_silence",
@@ -206,4 +218,35 @@ test("warns about sounds SuperDirt doesn't have, without failing", async () => {
 
   const fine = await call("tidal_eval", { channel: "d8", pattern: 's "bd sd superpiano"' });
   assert.doesNotMatch(fine.text, /⚠/);
+});
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+test("tidal_set_control sends /ctrl to Tidal's control port", async () => {
+  const res = await call("tidal_set_control", { name: "cutoff", value: 1000 });
+  assert.equal(res.isError, false);
+  await call("tidal_set_control", { name: "vowel", value: "o" });
+  await sleep(50);
+  assert.deepEqual(controlMessages.slice(-2), [
+    { address: "/ctrl", args: ["cutoff", 1000] },
+    { address: "/ctrl", args: ["vowel", "o"] },
+  ]);
+  assert.match((await call("tidal_get_state")).text, /Controls: cutoff=1000, vowel="o"/);
+});
+
+test("tidal_set_control glides a number to its new value", async () => {
+  const before = controlMessages.length;
+  const res = await call("tidal_set_control", { name: "cutoff", value: 3000, seconds: 0.25 });
+  assert.match(res.text, /gliding from 1000 to 3000/);
+  await sleep(500);
+  const sent = controlMessages.slice(before).map((m) => m.args[1] as number);
+  assert.ok(sent.length >= 4, `expected several steps, got ${sent.length}`);
+  assert.ok(sent.every((v, i) => i === 0 || v > sent[i - 1]), "values rise steadily");
+  assert.equal(sent.at(-1), 3000);
+});
+
+test("tidal_set_control rejects bad names and values", async () => {
+  assert.equal((await call("tidal_set_control", { name: "1x", value: 1 })).isError, true);
+  assert.equal((await call("tidal_set_control", { name: "x", value: true })).isError, true);
+  assert.equal((await call("tidal_set_control", { name: "x", value: 1, seconds: 9999 })).isError, true);
 });

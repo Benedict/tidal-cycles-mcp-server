@@ -53,6 +53,9 @@ try {
     channel: "d9", name: "fx", kind: "control", code: 'nope\n  "0"',
   }, { error: true, text: /not in scope: nope/ });
   await check("kept the accepted layers", "tidal_get_state", {}, { error: false, text: /source "beat": s "~ ~"(?![\s\S]*"fx")/ });
+  await check("sends a control to Tidal's control port", "tidal_set_control", { name: "smoke", value: 1 }, {
+    error: false, text: /via 127\.0\.0\.1:6011/,
+  });
   await check("silences the channel", "tidal_silence", { channel: "d9" }, { error: false });
 } finally {
   await client.close();

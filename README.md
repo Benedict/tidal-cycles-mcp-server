@@ -107,6 +107,7 @@ The file only ever holds the most recent command. Use file mode when you want to
 | `tidal_remove_layer` | `channel`, `name` | Removes a layer and re-evaluates the channel |
 | `tidal_autopilot` | `action` (`start`, `pause`, `stop`, `status`), optional timing | Keeps layered channels changing between turns |
 | `tidal_palette` | — | Lists Tidal transforms, sources and controls that combine well |
+| `tidal_set_control` | `name`, `value`, `seconds` (optional) | Changes a value that patterns read with `cF`/`cS`, without re-evaluating; `seconds` glides to it |
 | `tidal_list_samples` | `filter`, `refresh` (both optional) | Lists the sample banks and synths SuperDirt has installed |
 
 ### Layers
@@ -119,6 +120,16 @@ every 3 (jux rev) $ chop 4 $ s "bd*2 [~ sd]" # crush 4 # n "0 1"
 ```
 
 Claude can change one layer, such as swapping `chop 4` for `striate 8`, without rewriting the rest. Transforms apply in the order they were added, outermost first. Each channel has one source. `tidal_eval` on a channel replaces its layers.
+
+### Changing values while a pattern plays
+
+Re-evaluating a pattern swaps it in all at once. For smooth changes, a pattern can read a named value with `cF` (numbers) or `cS` (strings):
+
+```
+d1 $ s "bd*4 hh*8" # lpf (cF 1000 "cutoff")
+```
+
+`tidal_set_control` then changes `cutoff` through Tidal's control port, with no re-evaluation. With `seconds`, the value glides there, for example a filter sweep over 16 seconds. The value number in `cF` is what's used until the control has been set. The server sends to the `cCtrlPort` set in the boot file (6011 in the bundled `BootTidal.hs`), or to Tidal's default 6010 in file mode.
 
 ### Autopilot
 
@@ -138,6 +149,8 @@ Each session is also written to `tidal-mcp-session.log`, next to `TIDAL_FILE`, o
 | `TIDAL_FILE` | `./tidal-mcp-output.tidal` | Output file in file mode |
 | `TIDAL_LOG_FILE` | next to `TIDAL_FILE` | Session log |
 | `TIDAL_SAMPLE_PATHS` | — | Extra sample folders to check names against, separated by `:` (`;` on Windows). Use the same folders you load with `~dirt.loadSoundFiles` |
+| `TIDAL_CTRL_PORT` | the boot file's `cCtrlPort`, else 6010 | Tidal's control port, for `tidal_set_control` |
+| `TIDAL_CTRL_HOST` | `127.0.0.1` | Host for the control port |
 | `TIDAL_TRANSPORT` | `stdio` | `websocket` to serve MCP over WebSocket instead |
 
 For the WebSocket transport and its settings, see [WEBSOCKET-USAGE.md](WEBSOCKET-USAGE.md). For more configuration detail, see [CONFIGURATION.md](CONFIGURATION.md).
