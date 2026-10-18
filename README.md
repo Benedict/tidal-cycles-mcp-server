@@ -4,6 +4,21 @@ An [MCP](https://modelcontextprotocol.io/) server that lets Claude (or any MCP c
 
 It keeps track of what's playing on each channel, so you can say "make the hi-hats busier" and Claude knows what the hi-hats currently are.
 
+## How it works
+
+The server doesn't make music itself, and there's no AI inside it. It gives an MCP client a set of tools, such as "evaluate this pattern on `d2`" or "hush". The language model in the client decides what to call and writes the Tidal code.
+
+What comes back keeps the model honest:
+
+- **Tidal's own errors.** In GHCi mode, each pattern runs in a real Tidal session. If it doesn't type-check, the model gets GHC's error message and can fix it. Nothing changes on that channel in the meantime.
+- **What's actually installed.** `tidal_list_samples` lists your sample banks and synths, and the server warns when a pattern uses one that doesn't exist. Tidal accepts those patterns, but they're silent.
+- **What's playing.** `tidal_get_state` shows each channel's code, including anything you've played yourself in a shared session.
+- **Idioms that work.** `tidal_palette` lists transforms and effects that are checked against real Tidal.
+
+Everything the model sends is ordinary Tidal code, and it appears in the conversation and in the session log. You can read it, copy it into your own editor, or learn from it.
+
+It works with any MCP client, not only Claude, including clients that run local models.
+
 ## Requirements
 
 - Node.js 22 or later
@@ -169,7 +184,7 @@ Each session is also written to `tidal-mcp-session.log`, next to `TIDAL_FILE`, o
 | `TIDAL_CTRL_HOST` | `127.0.0.1` | Host for the control port |
 | `TIDAL_TRANSPORT` | `stdio` | `websocket` to serve MCP over WebSocket instead |
 
-For the WebSocket transport and its settings, see [WEBSOCKET-USAGE.md](WEBSOCKET-USAGE.md). For more configuration detail, see [CONFIGURATION.md](CONFIGURATION.md).
+For the WebSocket transport and its settings, see [WEBSOCKET-USAGE.md](WEBSOCKET-USAGE.md).
 
 ## Troubleshooting
 
@@ -208,7 +223,7 @@ The tests drive the built server over stdio in file mode, so they don't need GHC
 
 `typecheck:tidal` starts GHCi with `BootTidal.hs` and runs `:t` on every command the server sends and every palette entry. `:t` checks types without evaluating anything, so nothing plays. `smoke:ghci` only plays rests on `d9`, so it's safe to run with SuperDirt up. Set `GHCI_PATH` if `ghci` isn't on your `PATH`. CI runs all of these.
 
-Design notes for possible future features are in `feature-designs.md`, `midi-input-design.md` and `websocket-design.md`.
+Design notes for possible future features are in [docs/design](docs/design/). See [CONTRIBUTING.md](CONTRIBUTING.md) for where things go in the code.
 
 ### Releasing
 
