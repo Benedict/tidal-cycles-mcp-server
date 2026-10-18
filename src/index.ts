@@ -24,6 +24,7 @@ import { Autopilot, AutopilotSettings } from "./autopilot.js";
 import { PALETTE } from "./palette.js";
 import { GhciSession, TidalError } from "./ghci.js";
 import { SoundLibrary, describeLibrary, loadSoundLibrary, unknownSounds } from "./samples.js";
+import { OscSender, TIDAL_DEFAULT_CTRL_PORT, ctrlPortFromBootFile } from "./osc.js";
 import {
   HUSH_COMMAND,
   evalCommand,
@@ -64,6 +65,10 @@ const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..
 const VERSION: string = JSON.parse(readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf-8")).version;
 const DEFAULT_BOOT_PATH = path.join(PACKAGE_ROOT, "BootTidal.hs");
 
+const CONTROL_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const MAX_RAMP_SECONDS = 300;
+const RAMP_STEPS_PER_SECOND = 20;
+
 const CHANNELS = ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9"];
 const MAX_HISTORY = 500;
 
@@ -88,6 +93,12 @@ class TidalMCPServer {
   private isShuttingDown: boolean = false;
   private bpm?: number;
   private soundLibrary?: SoundLibrary;
+  private osc?: OscSender;
+  private controls: Map<string, number | string> = new Map();
+  private ramps: Map<string, NodeJS.Timeout> = new Map();
+  /** Counts hushes, so a pattern still being sent when one happens isn't recorded as playing */
+  private hushes = 0;
+  private fileWrites: Promise<void> = Promise.resolve();
 
   constructor(config: TidalConfig) {
     this.config = config;
@@ -389,6 +400,31 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
           },
         },
         {
+          name: "tidal_set_control",
+          description:
+            "Change a named value in Tidal without re-evaluating any pattern, through Tidal's control port. " +
+            "Patterns read it with cF (numbers) or cS (strings), e.g. tidal_eval d1 's \"bd*4\" # lpf (cF 1000 \"cutoff\")', " +
+            "then set cutoff here. With seconds, a number glides from its current value, for sweeps and fades.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: {
+                type: "string",
+                description: "The control name used in cF/cS, e.g. \"cutoff\"",
+              },
+              value: {
+                type: ["number", "string"],
+                description: "The new value",
+              },
+              seconds: {
+                type: "number",
+                description: `Optional: glide to the value over this many seconds (numbers only, up to ${MAX_RAMP_SECONDS})`,
+              },
+            },
+            required: ["name", "value"],
+          },
+        },
+        {
           name: "tidal_list_samples",
           description:
             "List the sample banks and synths SuperDirt has installed. Use these names with s or sound; " +
@@ -491,6 +527,12 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
             return result;
           }
 
+          case "tidal_set_control": {
+            const result = await this.setControl(args.name, args.value, args.seconds);
+            console.error(`[TOOL RESULT] tidal_set_control: Success`);
+            return result;
+          }
+
           case "tidal_list_samples": {
             if (args.refresh === true) this.soundLibrary = undefined;
             const filter = typeof args.filter === "string" ? args.filter : undefined;
@@ -554,6 +596,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     console.error(`[EVAL PATTERN] Full: ${fullPattern}`);
 
     // Send first: if Tidal rejects the pattern, nothing below should record it
+    const hushesBefore = this.hushes;
     try {
       await this.send(fullPattern);
     } catch (error) {
@@ -565,6 +608,12 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         throw new TidalError(`Tidal rejected the pattern. ${still}\n\n${error.message}`);
       }
       throw error;
+    }
+
+    // A hush sent while this was in flight comes after it, so this pattern isn't playing
+    if (this.hushes !== hushesBefore) {
+      console.error(`[EVAL PATTERN] Hushed while sending; not recording ${fullPattern}`);
+      return fullPattern;
     }
 
     // Log the pattern evaluation
@@ -757,6 +806,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
   private async hush() {
     console.error(`[HUSH] Stopping all patterns`);
     this.autopilot.stop();
+    this.hushes++;
     await this.send(HUSH_COMMAND);
     // Log the action
     await this.logAction("HUSH", "Stopped all patterns");
@@ -827,6 +877,10 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     if (this.bpm !== undefined) {
       stateText += `\n\nTempo: ${this.bpm} BPM.`;
     }
+    if (this.controls.size > 0) {
+      const values = [...this.controls].map(([k, v]) => `${k}=${typeof v === "string" ? `"${v}"` : v}`);
+      stateText += `\n\nControls: ${values.join(", ")}`;
+    }
     if (this.autopilot.status !== "stopped") {
       stateText += `\n\nAutopilot ${this.autopilot.status}.`;
     }
@@ -836,6 +890,79 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         {
           type: "text",
           text: stateText,
+        },
+      ],
+    };
+  }
+
+  /** Tidal's control port: TIDAL_CTRL_PORT, else the boot file's cCtrlPort, else Tidal's default. */
+  private getOsc(): OscSender {
+    if (!this.osc) {
+      const bootPath = this.config.bootTidalPath ?? (this.config.useGhci ? DEFAULT_BOOT_PATH : undefined);
+      const port =
+        Number(process.env.TIDAL_CTRL_PORT) ||
+        (bootPath ? ctrlPortFromBootFile(bootPath) : undefined) ||
+        TIDAL_DEFAULT_CTRL_PORT;
+      this.osc = new OscSender(process.env.TIDAL_CTRL_HOST || "127.0.0.1", port);
+    }
+    return this.osc;
+  }
+
+  private async setControl(name: unknown, value: unknown, seconds: unknown) {
+    if (typeof name !== "string" || !CONTROL_NAME.test(name)) {
+      throw new Error("Control name must be letters, digits and underscores, starting with a letter");
+    }
+    if (typeof value !== "number" && typeof value !== "string") {
+      throw new Error("Value must be a number or a string");
+    }
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      throw new Error("Value must be a finite number");
+    }
+    if (seconds !== undefined && (typeof seconds !== "number" || !(seconds >= 0 && seconds <= MAX_RAMP_SECONDS))) {
+      throw new Error(`seconds must be a number from 0 to ${MAX_RAMP_SECONDS}`);
+    }
+
+    // In GHCi mode the control port belongs to the server's own Tidal
+    if (this.config.useGhci) await this.ensureGhci();
+    const osc = this.getOsc();
+
+    clearInterval(this.ramps.get(name));
+    this.ramps.delete(name);
+
+    const from = this.controls.get(name);
+    if (typeof value === "number" && typeof from === "number" && seconds) {
+      const steps = Math.max(1, Math.round(seconds * RAMP_STEPS_PER_SECOND));
+      let step = 0;
+      const timer = setInterval(() => {
+        step++;
+        const current = step >= steps ? value : from + ((value - from) * step) / steps;
+        this.controls.set(name, current);
+        osc.send("/ctrl", [name, current]).catch((e) => console.error(`[OSC] ${e}`));
+        if (step >= steps) {
+          clearInterval(timer);
+          this.ramps.delete(name);
+        }
+      }, 1000 / RAMP_STEPS_PER_SECOND);
+      timer.unref();
+      this.ramps.set(name, timer);
+      await this.logAction("CONTROL", `${name}: ${from} → ${value} over ${seconds}s`);
+      return {
+        content: [{ type: "text", text: `✓ ${name} gliding from ${from} to ${value} over ${seconds}s (via ${osc.target}).` }],
+      };
+    }
+
+    await osc.send("/ctrl", [name, value]);
+    this.controls.set(name, value);
+    await this.logAction("CONTROL", `${name} = ${value}`);
+    const note = seconds && typeof from !== "number"
+      ? ` It had no previous number to glide from, so it jumped.`
+      : "";
+    return {
+      content: [
+        {
+          type: "text",
+          text: `✓ Set ${name} to ${typeof value === "string" ? `"${value}"` : value} (via ${osc.target}).${note} ` +
+            `Patterns only hear it if they read it with cF or cS.`,
         },
       ],
     };
@@ -943,12 +1070,17 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     };
   }
 
-  private async writeToTidalFile(code: string) {
-    console.error(`[WRITE TO FILE] Writing to ${this.config.tidalFile}`);
-    console.error(`[WRITE TO FILE] Code: ${code}`);
-    const content = `-- TidalCycles MCP Server\n-- Auto-generated at ${new Date().toISOString()}\n\n${code}\n`;
-    await fs.writeFile(this.config.tidalFile, content, "utf-8");
-    console.error(`[WRITE TO FILE] Successfully written`);
+  /** Writes one at a time, so the file always ends up holding the last command sent. */
+  private writeToTidalFile(code: string): Promise<void> {
+    const write = this.fileWrites.then(async () => {
+      console.error(`[WRITE TO FILE] Writing to ${this.config.tidalFile}`);
+      console.error(`[WRITE TO FILE] Code: ${code}`);
+      const content = `-- TidalCycles MCP Server\n-- Auto-generated at ${new Date().toISOString()}\n\n${code}\n`;
+      await fs.writeFile(this.config.tidalFile, content, "utf-8");
+      console.error(`[WRITE TO FILE] Successfully written`);
+    });
+    this.fileWrites = write.catch(() => undefined);
+    return write;
   }
 
   /** Sends code to Tidal: through GHCi in direct mode, otherwise to the output file. */
@@ -988,6 +1120,8 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
   private async cleanup() {
     console.error('[CLEANUP] Shutting down server...');
     this.autopilot.stop();
+    for (const timer of this.ramps.values()) clearInterval(timer);
+    this.osc?.close();
     
     if (this.ghci) {
       console.error('[CLEANUP] Stopping GHCi process...');
