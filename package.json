@@ -18,7 +18,8 @@
     "test": "npm run build && node --import tsx --test test/*.test.ts",
     "clean": "rm -rf dist",
     "rebuild": "npm run clean && npm run build",
-    "typecheck:tidal": "tsx scripts/typecheck-tidal.ts"
+    "typecheck:tidal": "tsx scripts/typecheck-tidal.ts",
+    "smoke:ghci": "tsx scripts/smoke-ghci.ts"
   },
   "keywords": [
     "tidalcycles",
