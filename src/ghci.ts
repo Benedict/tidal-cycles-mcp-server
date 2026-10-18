@@ -77,10 +77,16 @@ export class GhciSession {
     const { ghciPath, bootPath } = this.options;
     this.log(`[GHCI] Starting ${ghciPath} with ${bootPath}`);
 
-    // `exec ... 2>&1` merges stderr into stdout so errors stay in order with the prompt
-    const child = spawn("/bin/sh", ["-c", 'exec "$0" "$@" 2>&1', ghciPath, "-ghci-script", bootPath], {
-      stdio: ["pipe", "pipe", "inherit"],
-    });
+    // Merge stderr into stdout in the shell, so GHC's errors stay in order with the prompt
+    const child = process.platform === "win32"
+      ? spawn(`"${ghciPath}" -ghci-script "${bootPath}" 2>&1`, {
+          shell: true,
+          windowsHide: true,
+          stdio: ["pipe", "pipe", "inherit"],
+        })
+      : spawn("/bin/sh", ["-c", 'exec "$0" "$@" 2>&1', ghciPath, "-ghci-script", bootPath], {
+          stdio: ["pipe", "pipe", "inherit"],
+        });
     this.child = child;
 
     const ready = new Promise<string>((resolve, reject) => {
@@ -104,8 +110,8 @@ export class GhciSession {
     child.on("exit", (code, signal) => {
       this.log(`[GHCI] Exited with code ${code}, signal ${signal}`);
       const output = this.buffer.trim();
-      // The shell exits with 126 or 127 when it can't find or run the program
-      const message = code === 126 || code === 127
+      // The shell exits with 126 or 127 (9009 on Windows) when it can't find or run the program
+      const message = code === 126 || code === 127 || code === 9009
         ? `Couldn't run ${ghciPath}. Set GHCI_PATH to the full path of ghci.`
         : `GHCi exited (code ${code}${signal ? `, signal ${signal}` : ""})${output ? `:\n${output}` : ""}`;
       this.fail(new Error(message));
@@ -146,7 +152,12 @@ export class GhciSession {
       if (child.stdin && !child.stdin.destroyed) {
         child.stdin.end();
       }
-      child.kill();
+      if (process.platform === "win32" && child.pid) {
+        // Killing the shell would leave ghci running; /T ends its children too
+        spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+      } else {
+        child.kill();
+      }
     }
   }
 
@@ -185,6 +196,8 @@ export class GhciSession {
   }
 
   private onData(chunk: string): void {
+    // GHCi on Windows ends lines with \r\n
+    chunk = chunk.replace(/\r\n/g, "\n");
     // Output that arrives while nothing is waiting is Tidal talking on its own
     // (e.g. "Waiting for SuperDirt"). Log it rather than attribute it to the
     // next command.
@@ -193,7 +206,8 @@ export class GhciSession {
       return;
     }
 
-    this.buffer += chunk;
+    // A \r\n split across two chunks only joins up here
+    this.buffer = (this.buffer + chunk).replace(/\r\n/g, "\n");
     let index: number;
     while ((index = this.buffer.indexOf(MARKER_LINE)) !== -1) {
       const segment = this.buffer.slice(0, index);

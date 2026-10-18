@@ -5,7 +5,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { defaultQuarksDir } from "../src/samples.js";
 import { makeSoundFixture } from "./fixtures/sounds.js";
 import { decodeMessage } from "./fixtures/osc-decode.js";
 import * as dgram from "node:dgram";
@@ -34,8 +33,8 @@ async function writtenCode() {
 before(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "tidal-mcp-test-"));
   tidalFile = path.join(tmpDir, "out.tidal");
-  // A fake home, so the sample library is the fixture's on every machine
-  await makeSoundFixture(defaultQuarksDir(tmpDir));
+  // A fixture sample library, so results don't depend on what's installed
+  await makeSoundFixture(path.join(tmpDir, "quarks"));
   controlPort = dgram.createSocket("udp4");
   controlPort.on("message", (msg) => controlMessages.push(decodeMessage(msg)));
   await new Promise<void>((resolve) => controlPort.bind(0, "127.0.0.1", resolve));
@@ -44,7 +43,7 @@ before(async () => {
     new StdioClientTransport({
       command: process.execPath,
       args: ["dist/index.js"],
-      env: { ...process.env, TIDAL_FILE: tidalFile, HOME: tmpDir, TIDAL_SAMPLE_PATHS: "",
+      env: { ...process.env, TIDAL_FILE: tidalFile, TIDAL_QUARKS_PATH: path.join(tmpDir, "quarks"), TIDAL_SAMPLE_PATHS: "",
         TIDAL_CTRL_PORT: String(controlPort.address().port),
       } as Record<string, string>,
       stderr: "ignore",

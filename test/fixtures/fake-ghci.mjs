@@ -7,12 +7,20 @@
 //   - code containing HANG never gets a prompt; CRASH exits
 //   - a boot script whose path contains "broken" fails to load
 // Every statement received is appended to $FAKE_GHCI_LOG, one JSON string per line.
+// With FAKE_GHCI_CRLF=1 it ends lines with \r\n, as GHCi does on Windows.
 import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const args = process.argv.slice(2);
 const boot = args[args.indexOf("-ghci-script") + 1] ?? "";
 const logFile = process.env.FAKE_GHCI_LOG;
+
+if (process.env.FAKE_GHCI_CRLF === "1") {
+  for (const stream of [process.stdout, process.stderr]) {
+    const write = stream.write.bind(stream);
+    stream.write = (text, ...rest) => write(String(text).replace(/\n/g, "\r\n"), ...rest);
+  }
+}
 
 let prompt = "tidal> ";
 let block = null;

@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tidal_list_samples`, and a warning when a pattern uses a sound SuperDirt doesn't have
 - `tidal_set_control`: change values patterns read with `cF`/`cS` through Tidal's control port, optionally gliding
 - `TIDAL_SHARE_SESSION`: share one Tidal session between the server and your editor (e.g. Pulsar)
+- Windows support for GHCi mode, tested in CI
 - `tidal_get_state` takes `quiet` for clients that poll
 - `TIDAL_WS_ALLOWED_ORIGINS` for the WebSocket transport
 

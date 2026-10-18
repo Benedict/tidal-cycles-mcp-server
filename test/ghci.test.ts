@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fakeGhci } from "./fixtures/paths.js";
 import { GhciSession, TidalError, extractError } from "../src/ghci.js";
 
-const fakeGhci = path.resolve(import.meta.dirname, "fixtures", "fake-ghci.mjs");
 
 let tmpDir: string;
 let logFile: string;
@@ -70,6 +70,18 @@ test("returns GHC errors as TidalError", async () => {
   });
   // The session is still usable afterwards
   assert.equal(await s.run('d1 $ s "sn"'), "");
+});
+
+test("understands Windows line endings", async () => {
+  process.env.FAKE_GHCI_CRLF = "1";
+  try {
+    const s = makeSession();
+    await s.start();
+    assert.equal(await s.run('d1 $ s "bd"'), "");
+    await assert.rejects(s.run("d1 $ BAD"), /Variable not in scope: BAD/);
+  } finally {
+    delete process.env.FAKE_GHCI_CRLF;
+  }
 });
 
 test("sends multi-line code as one :{ :} block", async () => {

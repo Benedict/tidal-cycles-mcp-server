@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fakeGhci } from "./fixtures/paths.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 // Drives the built server in direct GHCi mode against test/fixtures/fake-ghci.mjs.
 
-const fakeGhci = path.resolve(import.meta.dirname, "fixtures", "fake-ghci.mjs");
 
 let tmpDir: string;
 let logFile: string;

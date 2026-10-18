@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { fakeGhci } from "./fixtures/paths.js";
 import {
   StatementBuffer,
   isBootStatement,
@@ -15,7 +16,8 @@ import {
 } from "../src/share.js";
 
 const root = path.resolve(import.meta.dirname, "..");
-const fakeGhci = path.join(root, "test", "fixtures", "fake-ghci.mjs");
+// Sharing uses Unix sockets and sh wrappers, so it's off on Windows
+const unixOnly = { skip: process.platform === "win32" ? "sharing isn't supported on Windows" : false };
 
 test("groups :{ :} blocks into one statement", () => {
   const buffer = new StatementBuffer();
@@ -49,7 +51,7 @@ test("parses what a statement does to the channels", () => {
   assert.equal(parsePlayback("setcps 0.5"), undefined);
 });
 
-test("writes ghci and ghc-pkg wrappers", async () => {
+test("writes ghci and ghc-pkg wrappers", unixOnly, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "tidal-wrap-test-"));
   const bin = writeGhciWrapper({ dir, attachScript: "/pkg/dist/attach.js", realGhci: "/opt/ghc's/bin/ghci", node: "/usr/bin/node" });
   const ghci = await fs.readFile(path.join(bin, "ghci"), "utf-8");
@@ -90,6 +92,7 @@ async function state(): Promise<string> {
 }
 
 before(async () => {
+  if (process.platform === "win32") return;
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "tidal-share-test-"));
   logFile = path.join(tmpDir, "received.log");
   client = new Client({ name: "test", version: "1" });
@@ -118,11 +121,12 @@ before(async () => {
 });
 
 after(async () => {
+  if (process.platform === "win32") return;
   await client.close();
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
-test("an editor shares the server's Tidal through the wrapper", async () => {
+test("an editor shares the server's Tidal through the wrapper", unixOnly, async () => {
   const bin = path.join(tmpDir, "share", "bin");
   const result = await runWrapper(bin, [
     `:script ${path.join(tmpDir, "BootTidal.hs")}`,
@@ -143,12 +147,12 @@ test("an editor shares the server's Tidal through the wrapper", async () => {
   assert.doesNotMatch(text, /d4/);
 });
 
-test("a hush from the editor clears the server's state", async () => {
+test("a hush from the editor clears the server's state", unixOnly, async () => {
   await runWrapper(path.join(tmpDir, "share", "bin"), ["hush"]);
   assert.match(await state(), /No active patterns/);
 });
 
-test("attach falls back to the real ghci when nothing is sharing", async () => {
+test("attach falls back to the real ghci when nothing is sharing", unixOnly, async () => {
   const direct = await new Promise<string>((resolve) => {
     const child = spawn(process.execPath, [path.join(root, "dist", "attach.js")], {
       env: { ...process.env, TIDAL_SHARE_SOCKET: path.join(tmpDir, "nobody-here.sock"), TIDAL_REAL_GHCI: fakeGhci },

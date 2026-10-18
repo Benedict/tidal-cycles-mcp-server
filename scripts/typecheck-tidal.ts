@@ -1,18 +1,17 @@
 /**
  * Type-checks the Tidal code this server generates against a real Tidal install.
  *
- * Starts GHCi with BootTidal.hs and runs `:t` on every command builder and every
- * palette entry. `:t` only checks types, so nothing is played even if SuperDirt
- * is running.
+ * Starts GHCi with BootTidal.hs (through GhciSession, as the server does) and
+ * runs `:t` on every command builder and every palette entry. `:t` only checks
+ * types, so nothing is played even if SuperDirt is running.
  *
  * Usage: npm run typecheck:tidal   (set GHCI_PATH if ghci isn't on PATH)
  */
-import { spawn } from "node:child_process";
 import * as path from "node:path";
+import { GhciSession, TidalError } from "../src/ghci.js";
 import {
   HUSH_COMMAND,
   evalCommand,
-  ghciBlock,
   silenceCommand,
   soloCommand,
   tempoCommand,
@@ -57,66 +56,49 @@ const checks: Check[] = [
   ),
 ];
 
-const marker = (i: number) => `<<check ${i}>>`;
+const ghci = new GhciSession({
+  ghciPath: process.env.GHCI_PATH || "ghci",
+  bootPath: path.resolve(import.meta.dirname, "..", "BootTidal.hs"),
+  log: () => {},
+});
 
-const input =
-  checks
-    .map((c, i) => `putStrLn "${marker(i)}"\n${ghciBlock(`:t (${c.expression}) :: ${c.type}`)}`)
-    .join("\n") + `\nputStrLn "${marker(checks.length)}"\n:q\n`;
-
-const ghci = process.env.GHCI_PATH || "ghci";
-const bootTidal = path.resolve(import.meta.dirname, "..", "BootTidal.hs");
-const child = spawn(ghci, ["-ghci-script", bootTidal], { stdio: ["pipe", "pipe", "pipe"] });
-
-let output = "";
-child.stdout.on("data", (d) => (output += d));
-child.stderr.on("data", (d) => (output += d));
-child.on("error", (err) => {
-  console.error(`Couldn't start ${ghci}: ${err.message}. Set GHCI_PATH or put ghci on PATH.`);
+try {
+  await ghci.start();
+} catch (error) {
+  console.error(`Couldn't start Tidal: ${(error as Error).message}\nSet GHCI_PATH or put ghci on PATH.`);
   process.exit(2);
-});
-child.stdin.end(input);
+}
 
-child.on("close", () => {
-  const first = output.indexOf(marker(0));
-  if (first === -1) {
-    console.error("Tidal didn't boot. GHCi output:\n" + output);
-    process.exit(1);
-  }
-  const boot = output.slice(0, first);
-  if (/error/i.test(boot) && /Could not (find|load) module/.test(boot)) {
-    console.error("BootTidal.hs failed to load. Is Tidal installed?\n" + boot);
-    process.exit(1);
-  }
+// Tidal reports its version when it boots; ask for it rather than parse the banner
+const version = (await ghci.run("putStrLn tidal_version").catch(() => "")) || "unknown";
 
-  const failures: string[] = [];
-  checks.forEach((check, i) => {
-    const start = output.indexOf(marker(i));
-    const end = output.indexOf(marker(i + 1));
-    const segment = output.slice(start + marker(i).length, end === -1 ? undefined : end);
-    if (end === -1 || /error/.test(segment)) {
-      failures.push(`✗ ${check.label}: ${check.expression}\n${segment.trim()}\n`);
+const failures: string[] = [];
+for (const check of checks) {
+  try {
+    await ghci.run(`:t (${check.expression}) :: ${check.type}`);
+  } catch (error) {
+    if (!(error instanceof TidalError)) throw error;
+    failures.push(`✗ ${check.label}: ${check.expression}\n${error.message}\n`);
+  }
+}
+ghci.stop();
+
+// Palette entries must only use sounds that exist. Skipped without Dirt-Samples (e.g. in CI).
+const library = loadSoundLibrary();
+if (library.banks.size > 0) {
+  for (const check of checks.filter((c) => c.label.startsWith("source/") || c.label.startsWith("control/"))) {
+    const missing = unknownSounds(check.expression, library);
+    if (missing.length > 0) {
+      failures.push(`✗ ${check.label}: ${check.expression}\nNo such sound in Dirt-Samples: ${missing.join(", ")}\n`);
     }
-  });
-
-  // Palette entries must only use sounds that exist. Skipped without Dirt-Samples (e.g. in CI).
-  const library = loadSoundLibrary();
-  if (library.banks.size > 0) {
-    for (const check of checks.filter((c) => c.label.startsWith("source/") || c.label.startsWith("control/"))) {
-      const missing = unknownSounds(check.expression, library);
-      if (missing.length > 0) {
-        failures.push(`✗ ${check.label}: ${check.expression}\nNo such sound in Dirt-Samples: ${missing.join(", ")}\n`);
-      }
-    }
-  } else {
-    console.log("Dirt-Samples not found; skipping the sample-name check.");
   }
+} else {
+  console.log("Dirt-Samples not found; skipping the sample-name check.");
+}
 
-  const version = output.match(/TidalCycles version ([\d.]+)/)?.[1] ?? "unknown";
-  if (failures.length > 0) {
-    console.error(failures.join("\n"));
-    console.error(`${failures.length} of ${checks.length} checks failed against Tidal ${version}.`);
-    process.exit(1);
-  }
-  console.log(`All ${checks.length} checks passed against Tidal ${version}.`);
-});
+if (failures.length > 0) {
+  console.error(failures.join("\n"));
+  console.error(`${failures.length} of ${checks.length} checks failed against Tidal ${version}.`);
+  process.exit(1);
+}
+console.log(`All ${checks.length} checks passed against Tidal ${version}.`);
