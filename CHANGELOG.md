@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tidal_set_control`: change values patterns read with `cF`/`cS` through Tidal's control port, optionally gliding
 - `TIDAL_SHARE_SESSION`: share one Tidal session between the server and your editor (e.g. Pulsar)
 - Windows support for GHCi mode, tested in CI
+- A control page (Hush, what's playing, autopilot, restart Tidal) and a Strudel page with `strudel_*` tools, served on `TIDAL_UI_PORT`
 - `tidal_get_state` takes `quiet` for clients that poll
 - `TIDAL_WS_ALLOWED_ORIGINS` for the WebSocket transport
 

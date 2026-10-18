@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidal MCP</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1c1a; --muted: #6b6860; --line: #e2dfd6;
+    --accent: #2d6a4f; --hush: #c4320a; --warn: #b42318; --code-bg: #f0eee8; --chip: #ebe8df;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141412; --panel: #1d1c1a; --ink: #edebe4; --muted: #9a978d; --line: #33322e;
+      --accent: #74c69d; --hush: #f97316; --warn: #f97066; --code-bg: #232220; --chip: #2a2926; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  .muted { color: var(--muted); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: 1px; }
+  .dot.on { background: var(--accent); }
+  .dot.bad { background: var(--warn); }
+  #hush { display: block; width: 100%; margin: 20px 0 8px; padding: 22px; border: 0; border-radius: 14px;
+    background: var(--hush); color: #fff; font-size: 22px; font-weight: 700; letter-spacing: 0.04em; cursor: pointer; }
+  #hush:active { transform: translateY(1px); }
+  button { font: inherit; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+  .panel.wide { grid-column: 1 / -1; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .btn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--chip); color: var(--ink); cursor: pointer; }
+  .btn:disabled, #hush:disabled { opacity: 0.45; cursor: not-allowed; }
+  .channel { padding: 10px 0; border-top: 1px solid var(--line); }
+  .channel:first-child { border-top: 0; padding-top: 0; }
+  .channel .name { font-weight: 600; margin-right: 8px; }
+  code, pre { font: 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  pre { margin: 6px 0 0; padding: 10px; background: var(--code-bg); border-radius: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  .layers { margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; }
+  .layers li { color: var(--muted); }
+  .layers .off { text-decoration: line-through; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .error { color: var(--warn); white-space: pre-wrap; }
+  #notice { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: calc(100% - 32px);
+    padding: 10px 16px; border-radius: 10px; background: var(--ink); color: var(--bg); font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #notice.show { opacity: 1; }
+  #readonly { display: none; margin: 0 0 8px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Tidal MCP</h1>
+    <span class="muted"><span id="dot" class="dot"></span><span id="connection">Connecting…</span></span>
+  </header>
+
+  <button id="hush" type="button" data-action="hush" title="Stop Tidal and Strudel">HUSH</button>
+  <p id="readonly" class="muted">You're viewing from another machine, so the buttons are off.</p>
+
+  <div class="grid">
+    <section class="panel wide">
+      <h2>Tidal channels</h2>
+      <div id="channels" class="muted">Nothing playing.</div>
+    </section>
+
+    <section class="panel">
+      <h2>Tidal</h2>
+      <dl>
+        <dt>Mode</dt><dd id="mode">–</dd>
+        <dt>Status</dt><dd id="tidal">–</dd>
+        <dt>Tempo</dt><dd id="bpm">–</dd>
+        <dt>Controls</dt><dd id="controls">–</dd>
+      </dl>
+      <p id="tidal-error" class="error"></p>
+      <div class="row"><button class="btn" data-action="restart_tidal">Restart Tidal</button></div>
+    </section>
+
+    <section class="panel">
+      <h2>Autopilot</h2>
+      <dl>
+        <dt>Status</dt><dd id="autopilot">–</dd>
+        <dt>Moving</dt><dd id="moving">–</dd>
+      </dl>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" data-action="autopilot_start">Start</button>
+        <button class="btn" data-action="autopilot_pause">Pause</button>
+        <button class="btn" data-action="autopilot_stop">Stop</button>
+      </div>
+    </section>
+
+    <section class="panel wide">
+      <h2>Strudel</h2>
+      <p class="muted" style="margin-top:0"><span id="pages">No pages open.</span> <a id="strudel-link" href="/strudel" target="_blank">Open the Strudel page</a></p>
+      <div id="blocks"></div>
+      <p id="strudel-error" class="error"></p>
+    </section>
+  </div>
+</main>
+<div id="notice" role="status"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let socket;
+  let canControl = false;
+
+  function ago(ms) {
+    const s = Math.round((Date.now() - ms) / 1000);
+    return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
+  }
+
+  function el(tag, text, className) {
+    const node = document.createElement(tag);
+    if (text !== undefined) node.textContent = text;
+    if (className) node.className = className;
+    return node;
+  }
+
+  function render(state) {
+    $("mode").textContent = state.mode === "ghci" ? "GHCi (direct)" : "File";
+    const t = state.tidal;
+    $("tidal").textContent = state.mode !== "ghci" ? "Your editor runs Tidal" : t.running ? "Running" : t.starting ? "Starting…" : "Not running";
+    $("tidal-error").textContent = t.lastError || "";
+    $("bpm").textContent = state.bpm ? `${state.bpm} BPM` : "–";
+    const controls = Object.entries(state.controls || {});
+    $("controls").textContent = controls.length ? controls.map(([k, v]) => `${k} = ${typeof v === "number" ? +v.toFixed(3) : JSON.stringify(v)}`).join(", ") : "–";
+
+    const channels = $("channels");
+    channels.replaceChildren();
+    if (!state.channels.length) channels.append(el("span", "Nothing playing."));
+    for (const c of state.channels) {
+      const box = el("div", undefined, "channel");
+      const head = el("div");
+      head.append(el("span", c.channel, "name"), el("span", ago(c.since), "muted"));
+      box.append(head, el("pre", c.pattern));
+      if (c.layers && c.layers.length) {
+        const list = el("ul", undefined, "layers");
+        for (const l of c.layers) list.append(el("li", `${l.kind} “${l.name}”: ${l.code}`, l.enabled ? "" : "off"));
+        box.append(list);
+      }
+      channels.append(box);
+    }
+
+    const a = state.autopilot;
+    $("autopilot").textContent = a.status[0].toUpperCase() + a.status.slice(1);
+    $("moving").textContent = a.status === "stopped" ? "–" : `${a.moving} layer(s), every ${a.settings.minSeconds}–${a.settings.maxSeconds}s`;
+
+    const s = state.strudel;
+    $("pages").textContent = s.pages === 0 ? "No pages open." : `${s.pages} page${s.pages === 1 ? "" : "s"} open.`;
+    const blocks = $("blocks");
+    blocks.replaceChildren();
+    if (s.blocks.length) blocks.append(el("pre", s.program));
+    $("strudel-error").textContent = s.lastError || "";
+  }
+
+  function notice(text, ok) {
+    const n = $("notice");
+    n.textContent = text;
+    n.style.background = ok ? "" : "var(--warn)";
+    n.classList.add("show");
+    clearTimeout(notice.timer);
+    notice.timer = setTimeout(() => n.classList.remove("show"), 3000);
+  }
+
+  function setControl(enabled) {
+    for (const b of document.querySelectorAll("[data-action]")) b.disabled = !enabled;
+  }
+
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button || !socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ action: button.dataset.action }));
+  });
+
+  function connect() {
+    socket = new WebSocket(`ws://${location.host}/events`);
+    socket.onopen = () => { $("dot").className = "dot on"; $("connection").textContent = "Connected"; };
+    socket.onclose = () => {
+      $("dot").className = "dot bad";
+      $("connection").textContent = "Server not running, retrying…";
+      setControl(false);
+      setTimeout(connect, 2000);
+    };
+    socket.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.type === "hello") {
+        canControl = message.canControl;
+        setControl(canControl);
+        $("readonly").style.display = canControl ? "none" : "block";
+      } else if (message.type === "state") {
+        render(message.state);
+      } else if (message.type === "notice") {
+        notice(message.message, message.ok);
+      }
+    };
+  }
+  setControl(false);
+  connect();
+</script>
+</body>
+</html>
