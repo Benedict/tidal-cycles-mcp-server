@@ -96,6 +96,9 @@ class TidalMCPServer {
   private osc?: OscSender;
   private controls: Map<string, number | string> = new Map();
   private ramps: Map<string, NodeJS.Timeout> = new Map();
+  /** Counts hushes, so a pattern still being sent when one happens isn't recorded as playing */
+  private hushes = 0;
+  private fileWrites: Promise<void> = Promise.resolve();
 
   constructor(config: TidalConfig) {
     this.config = config;
@@ -593,6 +596,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     console.error(`[EVAL PATTERN] Full: ${fullPattern}`);
 
     // Send first: if Tidal rejects the pattern, nothing below should record it
+    const hushesBefore = this.hushes;
     try {
       await this.send(fullPattern);
     } catch (error) {
@@ -604,6 +608,12 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         throw new TidalError(`Tidal rejected the pattern. ${still}\n\n${error.message}`);
       }
       throw error;
+    }
+
+    // A hush sent while this was in flight comes after it, so this pattern isn't playing
+    if (this.hushes !== hushesBefore) {
+      console.error(`[EVAL PATTERN] Hushed while sending; not recording ${fullPattern}`);
+      return fullPattern;
     }
 
     // Log the pattern evaluation
@@ -796,6 +806,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
   private async hush() {
     console.error(`[HUSH] Stopping all patterns`);
     this.autopilot.stop();
+    this.hushes++;
     await this.send(HUSH_COMMAND);
     // Log the action
     await this.logAction("HUSH", "Stopped all patterns");
@@ -1059,12 +1070,17 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     };
   }
 
-  private async writeToTidalFile(code: string) {
-    console.error(`[WRITE TO FILE] Writing to ${this.config.tidalFile}`);
-    console.error(`[WRITE TO FILE] Code: ${code}`);
-    const content = `-- TidalCycles MCP Server\n-- Auto-generated at ${new Date().toISOString()}\n\n${code}\n`;
-    await fs.writeFile(this.config.tidalFile, content, "utf-8");
-    console.error(`[WRITE TO FILE] Successfully written`);
+  /** Writes one at a time, so the file always ends up holding the last command sent. */
+  private writeToTidalFile(code: string): Promise<void> {
+    const write = this.fileWrites.then(async () => {
+      console.error(`[WRITE TO FILE] Writing to ${this.config.tidalFile}`);
+      console.error(`[WRITE TO FILE] Code: ${code}`);
+      const content = `-- TidalCycles MCP Server\n-- Auto-generated at ${new Date().toISOString()}\n\n${code}\n`;
+      await fs.writeFile(this.config.tidalFile, content, "utf-8");
+      console.error(`[WRITE TO FILE] Successfully written`);
+    });
+    this.fileWrites = write.catch(() => undefined);
+    return write;
   }
 
   /** Sends code to Tidal: through GHCi in direct mode, otherwise to the output file. */

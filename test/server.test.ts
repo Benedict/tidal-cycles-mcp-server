@@ -250,3 +250,18 @@ test("tidal_set_control rejects bad names and values", async () => {
   assert.equal((await call("tidal_set_control", { name: "x", value: true })).isError, true);
   assert.equal((await call("tidal_set_control", { name: "x", value: 1, seconds: 9999 })).isError, true);
 });
+
+test("hush wins over autopilot changes that are still being sent", async () => {
+  for (let round = 0; round < 15; round++) {
+    await call("tidal_set_layer", {
+      channel: "d7", name: "beat", kind: "source", code: 's "bd*2"', variants: ['s "bd*3"', 's "bd*4"'],
+    });
+    await call("tidal_set_layer", { channel: "d7", name: "rev", kind: "transform", code: "rev", variants: ["fast 2"] });
+    await call("tidal_autopilot", { action: "start", minSeconds: 0.001, maxSeconds: 0.003, layOutChance: 0.3 });
+    await new Promise((r) => setTimeout(r, round % 5));
+    await call("tidal_autopilot", { action: "stop" });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(await writtenCode(), "hush", `round ${round}: the file should end on hush`);
+    assert.match((await call("tidal_get_state")).text, /No active patterns/, `round ${round}`);
+  }
+});
