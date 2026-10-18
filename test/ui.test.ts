@@ -39,19 +39,25 @@ function get(pathname: string, host = `127.0.0.1:${port}`): Promise<{ status: nu
   });
 }
 
+type Inbox = Array<Record<string, any>>;
+const inboxes = new WeakMap<WebSocket, Inbox>();
+
 function socket(pathname: string, origin?: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}${pathname}`, origin ? { headers: { Origin: origin } } : {});
+    // Record from the start: the server can send before "open" reaches us
+    const inbox: Inbox = [];
+    inboxes.set(ws, inbox);
+    ws.on("message", (data) => inbox.push(JSON.parse(data.toString())));
     ws.once("open", () => resolve(ws));
     ws.once("error", reject);
     ws.once("unexpected-response", (_req, res) => reject(new Error(`HTTP ${res.statusCode}`)));
   });
 }
 
-function messages(ws: WebSocket): Array<Record<string, any>> {
-  const received: Array<Record<string, any>> = [];
-  ws.on("message", (data) => received.push(JSON.parse(data.toString())));
-  return received;
+/** Everything the socket has received since it was created. */
+function messages(ws: WebSocket): Inbox {
+  return inboxes.get(ws) ?? [];
 }
 
 async function call(name: string, args: Record<string, unknown> = {}) {
@@ -204,6 +210,9 @@ test("viewers on another machine can watch but not press buttons", async (t) => 
     for (let i = 0; i < 50 && !ws; i++) {
       ws = await new Promise<WebSocket | undefined>((resolve) => {
         const s = new WebSocket(`ws://${address}:${lanPort}/events`, { headers: { Origin: `http://${address}:${lanPort}` } });
+        const inbox: Inbox = [];
+        inboxes.set(s, inbox);
+        s.on("message", (data) => inbox.push(JSON.parse(data.toString())));
         s.once("open", () => resolve(s));
         s.once("error", () => resolve(undefined));
       });
