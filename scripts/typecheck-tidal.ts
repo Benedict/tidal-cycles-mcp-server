@@ -2,11 +2,13 @@
  * Type-checks the Tidal code this server generates against a real Tidal install.
  *
  * Starts GHCi with BootTidal.hs (through GhciSession, as the server does) and
- * runs `:t` on every command builder and every palette entry. `:t` only checks
+ * runs `:t` on every command builder, every palette entry, and every statement
+ * in examples.tidal. `:t` only checks
  * types, so nothing is played even if SuperDirt is running.
  *
  * Usage: npm run typecheck:tidal   (set GHCI_PATH if ghci isn't on PATH)
  */
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { GhciSession, TidalError } from "../src/ghci.js";
 import {
@@ -56,6 +58,32 @@ const checks: Check[] = [
   ),
 ];
 
+// examples.tidal, one statement per line plus indented continuation lines,
+// with comments removed (outside quotes), the way an editor evaluates lines
+function exampleStatements(text: string): string[] {
+  const stripComment = (line: string) => {
+    let quoted = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') quoted = !quoted;
+      if (!quoted && line.startsWith("--", i)) return line.slice(0, i);
+    }
+    return line;
+  };
+  const statements: string[] = [];
+  for (const raw of text.split("\n")) {
+    const line = stripComment(raw).replace(/\s+$/, "");
+    if (!line.trim()) continue;
+    if (/^\s/.test(line) && statements.length) statements[statements.length - 1] += "\n" + line;
+    else statements.push(line);
+  }
+  return statements;
+}
+const examples = fs.readFileSync(path.resolve(import.meta.dirname, "..", "examples.tidal"), "utf-8");
+for (const statement of exampleStatements(examples)) {
+  // No type annotation: statements are a mix of patterns and IO actions
+  checks.push({ label: "examples.tidal", expression: statement, type: "" });
+}
+
 const ghci = new GhciSession({
   ghciPath: process.env.GHCI_PATH || "ghci",
   bootPath: path.resolve(import.meta.dirname, "..", "BootTidal.hs"),
@@ -75,7 +103,7 @@ const version = (await ghci.run("putStrLn tidal_version").catch(() => "")) || "u
 const failures: string[] = [];
 for (const check of checks) {
   try {
-    await ghci.run(`:t (${check.expression}) :: ${check.type}`);
+    await ghci.run(check.type ? `:t (${check.expression}) :: ${check.type}` : `:t (${check.expression})`);
   } catch (error) {
     if (!(error instanceof TidalError)) throw error;
     failures.push(`✗ ${check.label}: ${check.expression}\n${error.message}\n`);
