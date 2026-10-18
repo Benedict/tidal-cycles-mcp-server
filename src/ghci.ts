@@ -92,7 +92,14 @@ export class GhciSession {
     });
 
     child.stdout!.on("data", (data: Buffer) => this.onData(data.toString()));
-    child.stdin!.on("error", (err) => this.fail(new Error(`GHCi input closed: ${err.message}`)));
+    child.stdin!.on("error", (err) => {
+      // Usually the process is exiting (e.g. ghci wasn't found), and its exit
+      // code says more than EPIPE does, so give the exit event a moment first.
+      this.log(`[GHCI] Input closed: ${err.message}`);
+      setTimeout(() => {
+        if (this.child === child) this.fail(new Error(`GHCi input closed: ${err.message}`));
+      }, 500).unref();
+    });
     child.on("error", (err) => this.fail(new Error(`Couldn't start GHCi (${ghciPath}): ${err.message}`)));
     child.on("exit", (code, signal) => {
       this.log(`[GHCI] Exited with code ${code}, signal ${signal}`);
