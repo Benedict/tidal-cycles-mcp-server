@@ -107,6 +107,7 @@ The file only ever holds the most recent command. Use file mode when you want to
 | `tidal_remove_layer` | `channel`, `name` | Removes a layer and re-evaluates the channel |
 | `tidal_autopilot` | `action` (`start`, `pause`, `stop`, `status`), optional timing | Keeps layered channels changing between turns |
 | `tidal_palette` | — | Lists Tidal transforms, sources and controls that combine well |
+| `tidal_list_samples` | `filter`, `refresh` (both optional) | Lists the sample banks and synths SuperDirt has installed |
 
 ### Layers
 
@@ -123,6 +124,8 @@ Claude can change one layer, such as swapping `chop 4` for `striate 8`, without 
 
 Claude can only change the music when you message it. The autopilot keeps layered channels moving in between. Each layer that has variants, and every transform layer, changes on its own random timer (10–40 seconds by default). A layer either switches to another of its variants, or, if it's a transform, sometimes drops out for a while and comes back later. `pause` freezes things as they are. `stop` also hushes everything.
 
+If a pattern uses a sound SuperDirt doesn't have, Tidal still accepts it, but that part is silent. So the server checks every name used with `s` or `sound` against your Dirt-Samples folder and SuperDirt's synths, and warns Claude about any it can't find.
+
 Each session is also written to `tidal-mcp-session.log`, next to `TIDAL_FILE`, or wherever `TIDAL_LOG_FILE` points.
 
 ## Environment variables
@@ -134,6 +137,7 @@ Each session is also written to `tidal-mcp-session.log`, next to `TIDAL_FILE`, o
 | `GHCI_PATH` | `ghci` | GHCi binary |
 | `TIDAL_FILE` | `./tidal-mcp-output.tidal` | Output file in file mode |
 | `TIDAL_LOG_FILE` | next to `TIDAL_FILE` | Session log |
+| `TIDAL_SAMPLE_PATHS` | — | Extra sample folders to check names against, separated by `:` (`;` on Windows). Use the same folders you load with `~dirt.loadSoundFiles` |
 | `TIDAL_TRANSPORT` | `stdio` | `websocket` to serve MCP over WebSocket instead |
 
 For the WebSocket transport and its settings, see [WEBSOCKET-USAGE.md](WEBSOCKET-USAGE.md). For more configuration detail, see [CONFIGURATION.md](CONFIGURATION.md).

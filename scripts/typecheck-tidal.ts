@@ -20,6 +20,7 @@ import {
 } from "../src/commands.js";
 import { composePattern, setLayer, Layer } from "../src/layers.js";
 import { PALETTE_CONTROLS, PALETTE_SOURCES, PALETTE_TRANSFORMS } from "../src/palette.js";
+import { loadSoundLibrary, unknownSounds } from "../src/samples.js";
 
 interface Check {
   label: string;
@@ -97,6 +98,19 @@ child.on("close", () => {
       failures.push(`✗ ${check.label}: ${check.expression}\n${segment.trim()}\n`);
     }
   });
+
+  // Palette entries must only use sounds that exist. Skipped without Dirt-Samples (e.g. in CI).
+  const library = loadSoundLibrary();
+  if (library.banks.size > 0) {
+    for (const check of checks.filter((c) => c.label.startsWith("source/") || c.label.startsWith("control/"))) {
+      const missing = unknownSounds(check.expression, library);
+      if (missing.length > 0) {
+        failures.push(`✗ ${check.label}: ${check.expression}\nNo such sound in Dirt-Samples: ${missing.join(", ")}\n`);
+      }
+    }
+  } else {
+    console.log("Dirt-Samples not found; skipping the sample-name check.");
+  }
 
   const version = output.match(/TidalCycles version ([\d.]+)/)?.[1] ?? "unknown";
   if (failures.length > 0) {
