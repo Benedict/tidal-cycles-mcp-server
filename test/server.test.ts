@@ -5,6 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { defaultQuarksDir } from "../src/samples.js";
+import { makeSoundFixture } from "./fixtures/sounds.js";
 
 // Drives the built server (dist/index.js) over stdio in file mode and checks
 // the Tidal code it writes.
@@ -27,12 +29,14 @@ async function writtenCode() {
 before(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "tidal-mcp-test-"));
   tidalFile = path.join(tmpDir, "out.tidal");
+  // A fake home, so the sample library is the fixture's on every machine
+  await makeSoundFixture(defaultQuarksDir(tmpDir));
   client = new Client({ name: "test-client", version: "1.0.0" });
   await client.connect(
     new StdioClientTransport({
       command: process.execPath,
       args: ["dist/index.js"],
-      env: { ...process.env, TIDAL_FILE: tidalFile } as Record<string, string>,
+      env: { ...process.env, TIDAL_FILE: tidalFile, HOME: tmpDir, TIDAL_SAMPLE_PATHS: "" } as Record<string, string>,
       stderr: "ignore",
     })
   );
@@ -51,6 +55,7 @@ test("lists all tools", async () => {
     "tidal_get_history",
     "tidal_get_state",
     "tidal_hush",
+    "tidal_list_samples",
     "tidal_palette",
     "tidal_remove_layer",
     "tidal_set_layer",
@@ -181,4 +186,24 @@ test("tidal_set_tempo sets cps from BPM and shows in state", async () => {
 
 test("the server reports the package version", () => {
   assert.match(client.getServerVersion()?.version ?? "", /^\d+\.\d+\.\d+/);
+});
+
+test("tidal_list_samples lists the installed banks and synths", async () => {
+  const { text } = await call("tidal_list_samples", { filter: "b" });
+  assert.match(text, /bd \(2\)/);
+  assert.match(text, /808bd \(1\)/);
+});
+
+test("warns about sounds SuperDirt doesn't have, without failing", async () => {
+  const res = await call("tidal_eval", { channel: "d8", pattern: 's "bd rim tom:2"' });
+  assert.equal(res.isError, false);
+  assert.match(res.text, /no sound called "rim", "tom", so they will be silent/);
+
+  const layer = await call("tidal_set_layer", {
+    channel: "d8", name: "beat", kind: "source", code: 's "bd"', variants: ['s "nope"'],
+  });
+  assert.match(layer.text, /no sound called "nope", so it will be silent/);
+
+  const fine = await call("tidal_eval", { channel: "d8", pattern: 's "bd sd superpiano"' });
+  assert.doesNotMatch(fine.text, /⚠/);
 });

@@ -23,6 +23,7 @@ import {
 import { Autopilot, AutopilotSettings } from "./autopilot.js";
 import { PALETTE } from "./palette.js";
 import { GhciSession, TidalError } from "./ghci.js";
+import { SoundLibrary, describeLibrary, loadSoundLibrary, unknownSounds } from "./samples.js";
 import {
   HUSH_COMMAND,
   evalCommand,
@@ -86,6 +87,7 @@ class TidalMCPServer {
   private autopilot: Autopilot;
   private isShuttingDown: boolean = false;
   private bpm?: number;
+  private soundLibrary?: SoundLibrary;
 
   constructor(config: TidalConfig) {
     this.config = config;
@@ -380,10 +382,29 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         },
         {
           name: "tidal_palette",
-          description: "Get a reference list of Tidal 1.9 transforms, sources and controls that combine well, grouped by layer kind.",
+          description: "Get a reference list of Tidal transforms, sources and controls that combine well, grouped by layer kind.",
           inputSchema: {
             type: "object",
             properties: {},
+          },
+        },
+        {
+          name: "tidal_list_samples",
+          description:
+            "List the sample banks and synths SuperDirt has installed. Use these names with s or sound; " +
+            "any other name is silent. Check here before using a sample you aren't sure exists.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              filter: {
+                type: "string",
+                description: "Only list names containing this, e.g. \"808\" or \"bass\"",
+              },
+              refresh: {
+                type: "boolean",
+                description: "Re-read the sample folders, e.g. after installing new samples",
+              },
+            },
           },
         },
       ],
@@ -470,6 +491,12 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
             return result;
           }
 
+          case "tidal_list_samples": {
+            if (args.refresh === true) this.soundLibrary = undefined;
+            const filter = typeof args.filter === "string" ? args.filter : undefined;
+            return { content: [{ type: "text", text: describeLibrary(this.getSoundLibrary(), filter) }] };
+          }
+
           case "tidal_palette": {
             return { content: [{ type: "text", text: PALETTE }] };
           }
@@ -510,7 +537,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: `✓ Evaluated on ${channel}:\n${fullPattern}\n\nPattern is now playing.`,
+          text: `✓ Evaluated on ${channel}:\n${fullPattern}\n\nPattern is now playing.${this.soundWarning(pattern)}`,
         },
       ],
     };
@@ -606,7 +633,8 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         content: [
           {
             type: "text",
-            text: `✓ Stored ${kind} layer "${name}" on ${channel}. Add a source layer to start it playing.`,
+            text: `✓ Stored ${kind} layer "${name}" on ${channel}. Add a source layer to start it playing.` +
+              this.soundWarning([code, ...((variants as string[] | undefined) ?? [])].join("\n")),
           },
         ],
       };
@@ -624,7 +652,8 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: `✓ Set ${kind} layer "${name}" on ${channel}:\n${fullPattern}\n\nLayers:\n${describeLayers(updated)}`,
+          text: `✓ Set ${kind} layer "${name}" on ${channel}:\n${fullPattern}\n\nLayers:\n${describeLayers(updated)}` +
+            this.soundWarning([code, ...((variants as string[] | undefined) ?? [])].join("\n")),
         },
       ],
     };
@@ -810,6 +839,26 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         },
       ],
     };
+  }
+
+  private getSoundLibrary(): SoundLibrary {
+    this.soundLibrary ??= loadSoundLibrary({
+      extraPaths: (process.env.TIDAL_SAMPLE_PATHS ?? "").split(path.delimiter).filter(Boolean),
+    });
+    return this.soundLibrary;
+  }
+
+  /**
+   * A warning for sound names SuperDirt doesn't have. Tidal accepts them, but
+   * they play nothing, so this is the only way the client finds out.
+   */
+  private soundWarning(code: string): string {
+    const unknown = unknownSounds(code, this.getSoundLibrary());
+    if (unknown.length === 0) return "";
+    return (
+      `\n\n⚠ SuperDirt has no sound called ${unknown.map((n) => `"${n}"`).join(", ")}, so ` +
+      `${unknown.length === 1 ? "it" : "they"} will be silent. Use tidal_list_samples to see what's installed.`
+    );
   }
 
   private async setTempo(bpm: unknown) {
