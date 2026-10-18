@@ -1,90 +1,18 @@
-# Security Policy
+# Security
 
-## Supported Versions
+## What the server can do
 
-Currently supported versions with security updates:
+Tidal patterns are Haskell, and in GHCi mode the server runs them with your user's permissions. Anything that can call the server's tools can run code on your machine. That's how live coding works, so the server's job is to make sure only the clients you chose can reach it.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.0.x   | :white_check_mark: |
+- **stdio (the default):** only the MCP client that started the server, such as Claude Desktop or Claude Code, can talk to it.
+- **WebSocket (`TIDAL_TRANSPORT=websocket`):** anything that can reach the port can run code, because there's no authentication. It listens on `localhost` by default. Don't bind it to `0.0.0.0`; tunnel the port instead. Browser pages are refused unless their origin is listed in `TIDAL_WS_ALLOWED_ORIGINS`.
+- **Shared session (`TIDAL_SHARE_SESSION=true`):** the socket in `~/.tidal-mcp` can only be opened by your user.
+- **Control port:** Tidal listens for OSC control messages on `127.0.0.1` (port 6011 with the bundled `BootTidal.hs`). That's Tidal's own feature: those messages can change values and mute channels, but they can't run code.
 
-## Reporting a Vulnerability
+The server only writes to `TIDAL_FILE`, its session log, and `~/.tidal-mcp` when sharing is on.
 
-We take security seriously. If you discover a security vulnerability, please follow these steps:
+## Reporting a vulnerability
 
-### 1. Do Not Open a Public Issue
+Report it privately through GitHub: on the repository's **Security** tab, choose **Report a vulnerability**. Please don't open a public issue.
 
-Please **do not** open a public GitHub issue if the bug is a security vulnerability.
-
-### 2. Report Privately
-
-Email security reports to: [your-email@example.com]
-
-Include:
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Suggested fix (if any)
-
-### 3. Response Timeline
-
-- **Initial Response**: Within 48 hours
-- **Status Update**: Within 7 days
-- **Fix Timeline**: Depends on severity (typically 30-90 days)
-
-### 4. Disclosure Policy
-
-- We will work with you to understand and address the issue
-- We will credit you in the security advisory (unless you prefer anonymity)
-- We follow coordinated disclosure practices
-- Security advisories will be published after fixes are released
-
-## Security Considerations
-
-### Running Untrusted Code
-
-**⚠️ Warning**: This MCP server executes TidalCycles code that Claude generates. While Claude is designed to be helpful and harmless, always review patterns before execution in production environments.
-
-### File System Access
-
-The server:
-- Only writes to the configured `TIDAL_FILE` location
-- Only reads BootTidal.hs from configured location
-- Does not traverse directories outside configured paths
-
-### Process Spawning
-
-In Direct GHCi mode:
-- Spawns a single GHCi process
-- Uses configured `GHCI_PATH` or system PATH
-- Process is cleaned up on server shutdown
-
-### Network Access
-
-- No network access required (local only)
-- Communicates via stdio with Claude Desktop
-- TidalCycles communicates with SuperCollider via local OSC (port 57120)
-
-## Best Practices
-
-1. **Review Generated Code**: Check patterns before evaluation
-2. **Use File Mode for Production**: More predictable than direct mode
-3. **Limit File System Permissions**: Use principle of least privilege
-4. **Keep Dependencies Updated**: Run `npm audit` regularly
-5. **Use Specific Paths**: Use absolute paths in configuration
-
-## Known Security Limitations
-
-- No sandboxing of TidalCycles code execution
-- No rate limiting on pattern evaluation
-- No input validation on pattern complexity
-- Relies on SuperCollider/SuperDirt security model
-
-## Security Updates
-
-Security updates will be released as:
-- Patch versions for minor issues (1.0.x)
-- Minor versions for moderate issues (1.x.0)
-- Major versions for critical issues (x.0.0)
-
-Subscribe to releases to stay informed: [GitHub Releases](https://github.com/yourusername/tidal-mcp-server/releases)
+Fixes go into the latest release.

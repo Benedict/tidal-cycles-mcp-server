@@ -65,18 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No undo functionality for pattern changes
 - Single instance limitation (can't run multiple MCP servers)
 
-## [Unreleased]
-
-### Planned Features
-- WebSocket-based communication for improved reliability
-- Pattern version control and undo/redo support
-- Real-time audio analysis feedback to Claude
-- Browser-based UI for pattern visualization
-- Multi-user collaboration support
-- MIDI output support
-- Integration with Hydra for visual live coding
-- Pattern library and favorites system
-
 ---
 
-For older versions and detailed changes, see the [commit history](https://github.com/yourusername/tidal-mcp-server/commits/main).
+For more detail, see the [commit history](https://github.com/Benedict/tidal-cycles-mcp-server/commits/main).
