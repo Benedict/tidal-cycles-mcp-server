@@ -144,10 +144,21 @@ export class Autopilot {
     const layer = this.getLayers().get(channel)?.find((l) => l.name === name);
     if (!layer) return;
 
+    const before = { code: layer.code, enabled: layer.enabled };
     if (mutateLayer(layer, this.settings.layOutChance, this.random)) {
       try {
         await this.onChange(channel, layer);
       } catch (error) {
+        // Put the layer back so state matches what's actually playing. If
+        // Tidal rejected a variant, drop it so it isn't tried again.
+        const rejected = (error as { rejected?: boolean }).rejected === true;
+        if (rejected && layer.code !== before.code) {
+          const bad = layer.code;
+          layer.variants = layer.variants.filter((v) => v !== bad);
+          console.error(`[AUTOPILOT] Dropped variant Tidal rejected on ${channel}/${name}: ${bad}`);
+        }
+        layer.code = before.code;
+        layer.enabled = before.enabled;
         console.error(`[AUTOPILOT] Failed to update ${channel}: ${error}`);
       }
     }

@@ -8,7 +8,6 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { spawn, ChildProcess } from "child_process";
 import { WebSocketServerTransport } from "./websocket-transport.js";
 import {
   Layer,
@@ -21,6 +20,7 @@ import {
 } from "./layers.js";
 import { Autopilot, AutopilotSettings } from "./autopilot.js";
 import { PALETTE } from "./palette.js";
+import { GhciSession, TidalError } from "./ghci.js";
 import {
   HUSH_COMMAND,
   evalCommand,
@@ -68,11 +68,10 @@ class TidalMCPServer {
   private server: Server;
   private channels: Map<string, ChannelState> = new Map();
   private config: TidalConfig;
-  private ghciProcess?: ChildProcess;
+  private ghci?: GhciSession;
+  private ghciStarting?: Promise<void>;
   private patternHistory: Array<{ channel: string; pattern: string; timestamp: number }> = [];
   private logFile: string;
-  private ghciStreamAlive: boolean = false;
-  private isReconnecting: boolean = false;
   private wsTransport?: WebSocketServerTransport;
   private soloedChannels: Set<string> = new Set();
   private layers: Map<string, Layer[]> = new Map();
@@ -491,6 +490,20 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     console.error(`[EVAL PATTERN] ${request}`);
     console.error(`[EVAL PATTERN] Full: ${fullPattern}`);
 
+    // Send first: if Tidal rejects the pattern, nothing below should record it
+    try {
+      await this.send(fullPattern);
+    } catch (error) {
+      if (error instanceof TidalError) {
+        await this.logAction("REJECTED", `${request}\n${fullPattern}\n${error.message}`);
+        const still = this.channels.get(channel)?.active
+          ? `The previous pattern on ${channel} is still playing.`
+          : `Nothing changed on ${channel}.`;
+        throw new TidalError(`Tidal rejected the pattern. ${still}\n\n${error.message}`);
+      }
+      throw error;
+    }
+
     // Log the pattern evaluation
     await this.logPatternEvaluation(request, channel, pattern);
 
@@ -523,13 +536,6 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       });
     }
 
-    // Use GHCi if configured, otherwise write to file
-    if (this.config.useGhci) {
-      await this.sendToGhci(fullPattern);
-    } else {
-      await this.writeToTidalFile(fullPattern);
-    }
-
     return fullPattern;
   }
 
@@ -549,16 +555,17 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       throw new Error("Variants must be an array of strings");
     }
 
-    const updated = setLayer(this.layers.get(channel) ?? [], {
+    const previous = this.layers.get(channel);
+    const updated = setLayer(previous ?? [], {
       name: name.trim(),
       kind: kind as LayerKind,
       code,
       variants: variants as string[] | undefined,
     });
-    this.layers.set(channel, updated);
-    this.autopilot.sync();
 
     if (!updated.some((l) => l.kind === "source")) {
+      this.layers.set(channel, updated);
+      this.autopilot.sync();
       return {
         content: [
           {
@@ -569,11 +576,14 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       };
     }
 
+    // Only keep the new layers if Tidal accepts the result
     const fullPattern = await this.play(
       channel,
       composePattern(updated),
       `Set ${kind} layer "${name}" on ${channel}`
     );
+    this.layers.set(channel, updated);
+    this.autopilot.sync();
     return {
       content: [
         {
@@ -599,16 +609,17 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       };
     }
 
-    this.layers.set(channel, updated);
-    this.autopilot.sync();
-
     if (!updated.some((l) => l.kind === "source")) {
+      this.layers.set(channel, updated);
+      this.autopilot.sync();
       return {
         content: [{ type: "text", text: `✓ Removed layer "${name}" from ${channel}.` }],
       };
     }
 
     const fullPattern = await this.play(channel, composePattern(updated), `Remove layer "${name}" from ${channel}`);
+    this.layers.set(channel, updated);
+    this.autopilot.sync();
     return {
       content: [
         {
@@ -680,6 +691,8 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
 
   private async hush() {
     console.error(`[HUSH] Stopping all patterns`);
+    this.autopilot.stop();
+    await this.send(HUSH_COMMAND);
     // Log the action
     await this.logAction("HUSH", "Stopped all patterns");
 
@@ -690,7 +703,6 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     }
     this.soloedChannels.clear();
     this.layers.clear();
-    this.autopilot.stop();
 
     // Broadcast to WebSocket clients
     if (this.wsTransport) {
@@ -698,13 +710,6 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         type: 'hush',
         timestamp: Date.now()
       });
-    }
-
-    // Use GHCi if configured, otherwise write to file
-    if (this.config.useGhci) {
-      await this.sendToGhci(HUSH_COMMAND);
-    } else {
-      await this.writeToTidalFile(HUSH_COMMAND);
     }
 
     return {
@@ -719,6 +724,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
 
   private async silence(channel: unknown) {
     assertChannel(channel);
+    await this.send(silenceCommand(channel));
     // Log the action
     await this.logAction("SILENCE", `Silenced channel ${channel}`);
 
@@ -729,14 +735,6 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     }
     this.layers.delete(channel);
     this.autopilot.sync();
-
-    
-    // Use GHCi if configured, otherwise write to file
-    if (this.config.useGhci) {
-      await this.sendToGhci(silenceCommand(channel));
-    } else {
-      await this.writeToTidalFile(silenceCommand(channel));
-    }
 
     return {
       content: [
@@ -780,15 +778,8 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     // Log the action
     await this.logAction("SOLO", `Soloed channel ${channel}`);
 
-    const soloPattern = soloCommand(channel);
+    await this.send(soloCommand(channel));
     this.soloedChannels.add(channel);
-    
-    // Use GHCi if configured, otherwise write to file
-    if (this.config.useGhci) {
-      await this.sendToGhci(soloPattern);
-    } else {
-      await this.writeToTidalFile(soloPattern);
-    }
 
     return {
       content: [
@@ -810,15 +801,8 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       };
     }
 
-    const unsolo = unsoloCommand(Array.from(this.soloedChannels));
+    await this.send(unsoloCommand(Array.from(this.soloedChannels)));
     this.soloedChannels.clear();
-
-    // Use GHCi if configured, otherwise write to file
-    if (this.config.useGhci) {
-      await this.sendToGhci(unsolo);
-    } else {
-      await this.writeToTidalFile(unsolo);
-    }
 
     return {
       content: [
@@ -867,166 +851,47 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     console.error(`[WRITE TO FILE] Successfully written`);
   }
 
-  private async startGhci() {
-    if (this.ghciProcess && this.ghciStreamAlive) {
-      console.error("[GHCI] Already running and alive");
-      return; // Already running
+  /** Sends code to Tidal: through GHCi in direct mode, otherwise to the output file. */
+  private async send(code: string): Promise<void> {
+    if (this.config.useGhci) {
+      await this.sendToGhci(code);
+    } else {
+      await this.writeToTidalFile(code);
     }
+  }
 
-    // Kill old process if it exists
-    if (this.ghciProcess) {
-      console.error("[GHCI] Cleaning up old process");
-      this.ghciProcess.kill();
-      this.ghciProcess = undefined;
-    }
-
-    const bootTidalPath = this.config.bootTidalPath || "BootTidal.hs";
-    const ghciPath = process.env.GHCI_PATH || "ghci";
-
-    console.error(`[GHCI] Starting GHCi with boot script: ${bootTidalPath}`);
-
-    const ghciProcess = spawn(ghciPath, ["-ghci-script", bootTidalPath], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    this.ghciProcess = ghciProcess;
-
-    // Mark stream as alive initially
-    this.ghciStreamAlive = true;
-
-    // Spawn failures (e.g. ghci not on PATH) arrive asynchronously; surface them
-    // through the init promise below rather than throwing from an event handler.
-    const spawnFailed = new Promise<never>((_, reject) => {
-      ghciProcess.on('error', (err) => {
-        console.error(`[GHCI ERROR] Failed to start: ${err.message}`);
-        console.error('[GHCI ERROR] Make sure ghci is in PATH or set GHCI_PATH environment variable');
-        this.ghciStreamAlive = false;
-        reject(err);
+  /** Starts GHCi if it isn't running. Concurrent callers share one start. */
+  private ensureGhci(): Promise<void> {
+    if (this.ghci?.alive) return Promise.resolve();
+    if (!this.ghciStarting) {
+      this.ghci ??= new GhciSession({
+        ghciPath: process.env.GHCI_PATH || "ghci",
+        bootPath: this.config.bootTidalPath || "BootTidal.hs",
       });
-    });
+      this.ghciStarting = this.ghci.start().finally(() => {
+        this.ghciStarting = undefined;
+      });
+    }
+    return this.ghciStarting;
+  }
 
-    // Handle process exit
-    this.ghciProcess.on('exit', (code, signal) => {
-      console.error(`[GHCI] Process exited with code ${code}, signal ${signal}`);
-      this.ghciStreamAlive = false;
-      this.ghciProcess = undefined;
-    });
-
-    // Handle stdin errors (this is the "stream destroyed" error)
-    this.ghciProcess.stdin?.on('error', (err) => {
-      console.error(`[GHCI STDIN ERROR] ${err.message}`);
-      this.ghciStreamAlive = false;
-    });
-
-    // Handle stdin close
-    this.ghciProcess.stdin?.on('close', () => {
-      console.error('[GHCI] stdin stream closed');
-      this.ghciStreamAlive = false;
-    });
-
-    // Forward GHCi's stderr so Haskell type errors in patterns are visible
-    ghciProcess.stderr?.on("data", (data: Buffer) => {
-      console.error('[GHCI STDERR]', data.toString());
-    });
-
-    // Wait for TidalCycles to initialize
-    let timeout: NodeJS.Timeout | undefined;
-    const initialized = new Promise<void>((resolve) => {
-      const checkInit = (data: Buffer) => {
-        const output = data.toString();
-        console.error('[GHCI OUTPUT]', output);
-        if (output.includes("Connected to SuperDirt") || output.includes("tidal>")) {
-          ghciProcess.stdout?.off("data", checkInit);
-          console.error('[GHCI] ✓ Successfully initialized and connected to SuperDirt');
-          resolve();
-        }
-      };
-      ghciProcess.stdout?.on("data", checkInit);
-
-      // Timeout after 10 seconds
-      timeout = setTimeout(() => {
-        console.error('[GHCI] Initialization timeout reached');
-        resolve();
-      }, 10000);
-    });
-
+  private async sendToGhci(code: string): Promise<void> {
     try {
-      await Promise.race([initialized, spawnFailed]);
-    } finally {
-      clearTimeout(timeout);
+      await this.ensureGhci();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Couldn't start Tidal: ${message}\nCheck GHCI_PATH and TIDAL_BOOT_PATH.`);
     }
-
-    console.error("[GHCI] GHCi/TidalCycles started and ready");
-  }
-
-  private async sendToGhci(code: string) {
-    // Check if stream is alive, reconnect if needed
-    if (!this.isGhciHealthy()) {
-      console.error('[GHCI] Stream not alive, attempting reconnection...');
-      
-      // Prevent multiple simultaneous reconnection attempts
-      if (this.isReconnecting) {
-        throw new Error("GHCi is currently reconnecting, please try again in a moment");
-      }
-
-      this.isReconnecting = true;
-      try {
-        await this.startGhci();
-        console.error('[GHCI] ✓ Reconnection successful');
-      } catch (error) {
-        this.isReconnecting = false;
-        throw new Error(`Failed to reconnect to GHCi: ${error}`);
-      }
-      this.isReconnecting = false;
-    }
-
-    const ghciCode = ghciBlock(code);
-    console.error(`[GHCI SEND] ${ghciCode}`);
-
-    return new Promise<void>((resolve, reject) => {
-      if (!this.ghciProcess?.stdin) {
-        reject(new Error("GHCi stdin not available after reconnection"));
-        return;
-      }
-
-      this.ghciProcess.stdin.write(ghciCode + "\n", (err) => {
-        if (err) {
-          console.error(`[GHCI SEND ERROR] ${err.message}`);
-          this.ghciStreamAlive = false; // Mark as dead on write error
-          reject(err);
-        } else {
-          console.error('[GHCI SEND] ✓ Successfully sent');
-          resolve();
-        }
-      });
-    });
-  }
-
-  /**
-   * Check if GHCi connection is healthy
-   */
-  private isGhciHealthy(): boolean {
-    return this.ghciStreamAlive && 
-           !!this.ghciProcess && 
-           !!this.ghciProcess.stdin && 
-           !this.ghciProcess.stdin.destroyed &&
-           !this.ghciProcess.killed;
+    await this.ghci!.run(code);
   }
 
   private async cleanup() {
     console.error('[CLEANUP] Shutting down server...');
     this.autopilot.stop();
     
-    if (this.ghciProcess) {
+    if (this.ghci) {
       console.error('[CLEANUP] Stopping GHCi process...');
-      
-      // Close stdin gracefully first
-      if (this.ghciProcess.stdin && !this.ghciProcess.stdin.destroyed) {
-        this.ghciProcess.stdin.end();
-      }
-      
-      // Then kill the process
-      this.ghciProcess.kill();
-      this.ghciStreamAlive = false;
+      this.ghci.stop();
       console.error('[CLEANUP] GHCi process stopped');
     }
     
@@ -1035,11 +900,6 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
   }
 
   async run() {
-    // Start GHCi if using direct mode
-    if (this.config.useGhci) {
-      await this.startGhci();
-    }
-
     // Initialize log file with header
     const logHeader = `TidalCycles MCP Server - Session Log
 Started: ${new Date().toISOString()}
@@ -1077,6 +937,12 @@ Log File: ${this.logFile}
       await this.server.connect(transport);
       console.error("TidalCycles MCP Server running on stdio");
       console.error(`Mode: ${this.config.useGhci ? 'Direct GHCi' : 'File-based'}`);
+    }
+
+    // Start Tidal in the background once the client can reach us. If it fails,
+    // the next tool call retries and reports why.
+    if (this.config.useGhci) {
+      this.ensureGhci().catch((error) => console.error(`[GHCI] Startup failed: ${error.message}`));
     }
   }
 }

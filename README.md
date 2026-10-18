@@ -50,7 +50,7 @@ The server has two ways of getting code to Tidal.
 
 ### Direct GHCi mode (recommended)
 
-The server starts GHCi with `BootTidal.hs` itself and sends each command to it. If GHCi dies, the server restarts it on the next call.
+The server starts GHCi with `BootTidal.hs` itself and sends each command to it. If Tidal rejects a pattern, for example because it doesn't type-check, the error goes back to Claude, and the server's state stays as it was. Tidal also keeps playing whatever was on that channel before. If GHCi dies or stops responding, the server restarts it on the next call.
 
 Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
 
@@ -146,7 +146,7 @@ For the WebSocket transport and its settings, see [WEBSOCKET-USAGE.md](WEBSOCKET
 
 **Nothing plays:**
 1. Check SuperDirt is running and shows `listening to Tidal on port 57120`.
-2. In GHCi mode, look in the client's MCP logs for `[GHCI STDERR]` lines. Haskell type errors in a pattern show up there.
+2. In GHCi mode, look in the client's MCP logs for `[GHCI]` lines. Startup problems, such as Tidal not being installed, show up there.
 
 **Sound keeps going after the server stops:** the server stops GHCi when it shuts down. If a GHCi process outlives it, run `pkill ghci`, or in SuperCollider run `s.freeAll`.
 
@@ -157,7 +157,7 @@ For the WebSocket transport and its settings, see [WEBSOCKET-USAGE.md](WEBSOCKET
 ## Limitations
 
 - The server only knows what it has sent. If you also evaluate code by hand in the same Tidal session, `tidal_get_state` won't reflect it.
-- Errors from GHCi are logged, but they aren't returned to the client. A pattern that fails to type-check still reports success.
+- Type errors come back to Claude, but runtime errors don't. Tidal prints those on its own while the pattern plays, so the server only logs them. File mode has no feedback at all.
 - The pattern is arbitrary Haskell, run with your user's permissions. Only connect clients you trust.
 
 ## Development
@@ -166,11 +166,12 @@ For the WebSocket transport and its settings, see [WEBSOCKET-USAGE.md](WEBSOCKET
 npm run dev     # run from source with tsx
 npm test                 # build, then run the test suite against dist/
 npm run typecheck:tidal  # type-check generated Tidal code against your Tidal install
+npm run smoke:ghci       # run the built server in GHCi mode against your Tidal (silent patterns only)
 ```
 
 The tests drive the built server over stdio in file mode, so they don't need GHCi or SuperCollider.
 
-`typecheck:tidal` starts GHCi with `BootTidal.hs` and runs `:t` on every command the server sends and every palette entry. `:t` checks types without evaluating anything, so nothing plays. Set `GHCI_PATH` if `ghci` isn't on your `PATH`. CI runs both.
+`typecheck:tidal` starts GHCi with `BootTidal.hs` and runs `:t` on every command the server sends and every palette entry. `:t` checks types without evaluating anything, so nothing plays. `smoke:ghci` only plays rests on `d9`, so it's safe to run with SuperDirt up. Set `GHCI_PATH` if `ghci` isn't on your `PATH`. CI runs all of these.
 
 Design notes for possible future features are in `feature-designs.md`, `midi-input-design.md` and `websocket-design.md`.
 
