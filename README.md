@@ -28,7 +28,9 @@ It works with any MCP client, not only Claude, including clients that run local 
 
 ## Install
 
-There's nothing to install separately: your MCP client runs the server with `npx`, which downloads it on first use. See [Configure your client](#configure-your-client).
+**Claude Desktop:** download `tidal-mcp-server.mcpb` from the [latest release](https://github.com/Benedict/tidal-cycles-mcp-server/releases/latest) and open it. Claude Desktop shows an install dialog with the settings: whether to run Tidal for you, your `ghci` path, and an optional port for the web pages. You can switch the server on and off in Claude Desktop's settings.
+
+**Other clients, or configuring by hand:** your MCP client runs the server with `npx`, which downloads it on first use. See [Configure your client](#configure-your-client).
 
 To work on the server itself, see [Development](#development).
 
@@ -236,6 +238,7 @@ npm run dev     # run from source with tsx
 npm test                 # build, then run the test suite against dist/
 npm run typecheck:tidal  # type-check generated Tidal code against your Tidal install
 npm run smoke:ghci       # run the built server in GHCi mode against your Tidal (silent patterns only)
+npm run bundle           # build tidal-mcp-server.mcpb for Claude Desktop
 ```
 
 The tests drive the built server over stdio in file mode, so they don't need GHCi or SuperCollider.
@@ -252,7 +255,7 @@ Bump `version` in `package.json`, update `CHANGELOG.md`, merge, then tag:
 git tag v1.2.0 && git push origin v1.2.0
 ```
 
-`.github/workflows/release.yml` checks the tag matches `package.json`, runs the tests and publishes to npm with provenance. It uses npm trusted publishing if the package has this workflow set as a trusted publisher on npmjs.com, and otherwise an `NPM_TOKEN` repository secret.
+`.github/workflows/release.yml` checks the tag matches `package.json`, runs the tests, publishes to npm with provenance, then creates a GitHub release with the Claude Desktop bundle attached. It uses npm trusted publishing if the package has this workflow set as a trusted publisher on npmjs.com, and otherwise an `NPM_TOKEN` repository secret.
 
 ## License
 
