@@ -68,7 +68,7 @@ jobs:
         cabal-version: latest
 
     - name: Cache cabal store
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ steps.haskell.outputs.cabal-store }}
         key: cabal-${{ runner.os }}-ghc-${{ steps.haskell.outputs.ghc-version }}-tidal-${{ env.TIDAL_VERSION }}
