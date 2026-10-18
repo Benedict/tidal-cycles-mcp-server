@@ -110,8 +110,11 @@ export class GhciSession {
     child.on("exit", (code, signal) => {
       this.log(`[GHCI] Exited with code ${code}, signal ${signal}`);
       const output = this.buffer.trim();
-      // The shell exits with 126 or 127 (9009 on Windows) when it can't find or run the program
-      const message = code === 126 || code === 127 || code === 9009
+      // The shell exits with 126 or 127 when it can't find or run the program; cmd on
+      // Windows uses 9009 or 1, and says the program "is not recognized"
+      const notFound =
+        code === 126 || code === 127 || code === 9009 || /is not recognized as an internal or external command/.test(output);
+      const message = notFound
         ? `Couldn't run ${ghciPath}. Set GHCI_PATH to the full path of ghci.`
         : `GHCi exited (code ${code}${signal ? `, signal ${signal}` : ""})${output ? `:\n${output}` : ""}`;
       this.fail(new Error(message));
