@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - Unreleased
+
+### Added
+- Install with `npx -y tidal-mcp-server`; the package ships its own `BootTidal.hs`
+- `tidal_set_layer`, `tidal_remove_layer`: build a channel from named layers
+- `tidal_autopilot`: keeps layered channels changing between turns
+- `tidal_palette`: idioms that combine well, including genre starting points
+- `tidal_set_tempo`: set the tempo in BPM
+- `tidal_get_state` takes `quiet` for clients that poll
+- `TIDAL_WS_ALLOWED_ORIGINS` for the WebSocket transport
+
+### Changed
+- In GHCi mode, Tidal's errors are returned to the client, and rejected
+  patterns change nothing
+- Requires Node.js 22 or later
+
+### Fixed
+- `tidal_solo` and `tidal_unsolo` sent invalid Tidal
+- `tidal_silence` sent invalid Tidal
+- Multi-line patterns in GHCi mode
+- A missing `ghci` no longer stops the server from connecting
+- Web pages could connect to the WebSocket transport and run code
+
 ## [1.0.0] - 2025-10-25
 
 ### Added

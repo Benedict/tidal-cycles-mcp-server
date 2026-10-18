@@ -7,7 +7,9 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import * as fs from "fs/promises";
+import { readFileSync } from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 import { WebSocketServerTransport } from "./websocket-transport.js";
 import {
   Layer,
@@ -27,6 +29,7 @@ import {
   ghciBlock,
   silenceCommand,
   soloCommand,
+  tempoCommand,
   unsoloCommand,
 } from "./commands.js";
 
@@ -55,6 +58,11 @@ interface TidalConfig {
   websocketAllowedOrigins?: string[];
 }
 
+// The package root, for files that ship with it (package.json, BootTidal.hs)
+const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const VERSION: string = JSON.parse(readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf-8")).version;
+const DEFAULT_BOOT_PATH = path.join(PACKAGE_ROOT, "BootTidal.hs");
+
 const CHANNELS = ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9"];
 const MAX_HISTORY = 500;
 
@@ -77,6 +85,7 @@ class TidalMCPServer {
   private layers: Map<string, Layer[]> = new Map();
   private autopilot: Autopilot;
   private isShuttingDown: boolean = false;
+  private bpm?: number;
 
   constructor(config: TidalConfig) {
     this.config = config;
@@ -87,7 +96,7 @@ class TidalMCPServer {
     this.server = new Server(
       {
         name: "tidal-mcp-server",
-        version: "1.0.0",
+        version: VERSION,
       },
       {
         capabilities: {
@@ -225,7 +234,26 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
           description: "Get the current state of all channels - what patterns are playing and when they started.",
           inputSchema: {
             type: "object",
-            properties: {},
+            properties: {
+              quiet: {
+                type: "boolean",
+                description: "Don't log this call. For clients that poll the state often.",
+              },
+            },
+          },
+        },
+        {
+          name: "tidal_set_tempo",
+          description: "Set the tempo in beats per minute, assuming four beats per cycle (setcps (bpm/60/4)).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              bpm: {
+                type: "number",
+                description: "Beats per minute, from 20 to 999",
+              },
+            },
+            required: ["bpm"],
           },
         },
         {
@@ -365,8 +393,12 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       const { name, arguments: args } = request.params;
 
       // Log all incoming tool calls
-      console.error(`[TOOL CALL] ${name}`);
-      console.error(`[TOOL ARGS] ${JSON.stringify(args, null, 2)}`);
+      // Clients that poll the state can ask not to fill the log
+      const quiet = name === "tidal_get_state" && args?.quiet === true;
+      if (!quiet) {
+        console.error(`[TOOL CALL] ${name}`);
+        console.error(`[TOOL ARGS] ${JSON.stringify(args, null, 2)}`);
+      }
 
       try {
         if (!args) {
@@ -393,8 +425,12 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
           }
 
           case "tidal_get_state": {
-            const result = await this.getState();
-            console.error(`[TOOL RESULT] tidal_get_state: Success`);
+            return await this.getState();
+          }
+
+          case "tidal_set_tempo": {
+            const result = await this.setTempo(args.bpm);
+            console.error(`[TOOL RESULT] tidal_set_tempo: Success`);
             return result;
           }
 
@@ -759,6 +795,9 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     let stateText = activeChannels.length > 0
       ? `Active channels:\n${activeChannels.join("\n")}`
       : "No active patterns.";
+    if (this.bpm !== undefined) {
+      stateText += `\n\nTempo: ${this.bpm} BPM.`;
+    }
     if (this.autopilot.status !== "stopped") {
       stateText += `\n\nAutopilot ${this.autopilot.status}.`;
     }
@@ -770,6 +809,18 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
           text: stateText,
         },
       ],
+    };
+  }
+
+  private async setTempo(bpm: unknown) {
+    if (typeof bpm !== "number" || !(bpm >= 20 && bpm <= 999)) {
+      throw new Error("bpm must be a number from 20 to 999");
+    }
+    await this.send(tempoCommand(bpm));
+    this.bpm = bpm;
+    await this.logAction("TEMPO", `${bpm} BPM`);
+    return {
+      content: [{ type: "text", text: `✓ Tempo set to ${bpm} BPM.` }],
     };
   }
 
@@ -866,7 +917,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     if (!this.ghciStarting) {
       this.ghci ??= new GhciSession({
         ghciPath: process.env.GHCI_PATH || "ghci",
-        bootPath: this.config.bootTidalPath || "BootTidal.hs",
+        bootPath: this.config.bootTidalPath || DEFAULT_BOOT_PATH,
       });
       this.ghciStarting = this.ghci.start().finally(() => {
         this.ghciStarting = undefined;

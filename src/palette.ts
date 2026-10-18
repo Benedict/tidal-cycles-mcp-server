@@ -18,14 +18,16 @@ export const PALETTE_TRANSFORMS: Groups = {
   Conditional: ["every 3 (jux rev)", "every 4 (0.25 <~)", "whenmod 8 6 (rev)", "whenmod 7 5 (# speed 2)"],
 };
 
-export const PALETTE_SOURCES: string[] = [
-  's "bd*2 [~ sd] hh*3"',
-  's "bd(3,8) sn(5,8,2)"',
-  's "<bd*2 bd(3,8)>"',
-  'n "0 .. 7" # s "arpy"',
-  'note "c\'maj e\'min" # s "superpiano"',
-  's "amencutup*8" # n (irand 32)',
-];
+export const PALETTE_SOURCES: Groups = {
+  Rhythm: ['s "bd*2 [~ sd] hh*3"', 's "bd(3,8) sn(5,8,2)"', 's "<bd*2 bd(3,8)>"', 's "amencutup*8" # n (irand 32)'],
+  Pitched: ['n "0 .. 7" # s "arpy"', 'note "c\'maj e\'min" # s "superpiano"', 'note (scale "dorian" "0 2 4 <6 7>") # s "arpy"'],
+  Techno: ['stack [s "bd*4", s "hh*8" # gain 0.5, s "~ cp" # gain 0.7]'],
+  House: ['stack [s "bd*4", s "~ hh ~ hh" # gain 0.6, s "~ cp ~ cp" # gain 0.7]'],
+  "Drum & bass": ['stack [s "bd ~ ~ bd ~ ~ bd ~", s "~ sn ~ sn" # gain 0.9, s "hh*16" # gain 0.4]'],
+  Trap: ['stack [s "808bd(3,8)", s "~ 808sd", s "808hc*8" # gain 0.5]'],
+  Jazz: ['stack [s "bd ~ ~ bd", s "rs(3,8)" # gain 0.6, s "hh(5,8)" # gain 0.4]'],
+  Bass: ['s "bass3(3,8)" # speed 0.5 # lpf 1000', 's "bass3*4" # speed "<0.5 0.75 0.5 1>" # lpf 1200 # resonance 0.3'],
+};
 
 export const PALETTE_CONTROLS: Groups = {
   Sample: ['n "0 1 2 3"', "n (irand 8)", 'speed "1 2 -1"', "begin 0.25", "end 0.5", "cut 1", "legato 1"],
@@ -48,7 +50,7 @@ TRANSFORMS (layer kind "transform"; each is applied as "<code> $")
 ${renderGroups(PALETTE_TRANSFORMS)}
 
 SOURCES (layer kind "source"; exactly one per channel)
-  ${PALETTE_SOURCES.join(" · ")}
+${renderGroups(PALETTE_SOURCES)}
 
 CONTROLS (layer kind "control"; each is applied as "# <code>")
 ${renderGroups(PALETTE_CONTROLS)}

@@ -54,6 +54,7 @@ test("lists all tools", async () => {
     "tidal_palette",
     "tidal_remove_layer",
     "tidal_set_layer",
+    "tidal_set_tempo",
     "tidal_silence",
     "tidal_solo",
     "tidal_unsolo",
@@ -166,4 +167,18 @@ test("autopilot evolves layers until paused, and stop hushes", async () => {
 
 test("tidal_palette returns the reference list", async () => {
   assert.match((await call("tidal_palette")).text, /TRANSFORMS/);
+});
+
+test("tidal_set_tempo sets cps from BPM and shows in state", async () => {
+  const res = await call("tidal_set_tempo", { bpm: 128 });
+  assert.equal(res.isError, false);
+  assert.equal(await writtenCode(), "setcps (128/60/4)");
+  assert.match((await call("tidal_get_state", { quiet: true })).text, /Tempo: 128 BPM/);
+
+  const bad = await call("tidal_set_tempo", { bpm: 5000 });
+  assert.equal(bad.isError, true);
+});
+
+test("the server reports the package version", () => {
+  assert.match(client.getServerVersion()?.version ?? "", /^\d+\.\d+\.\d+/);
 });
