@@ -177,6 +177,16 @@ The tests drive the built server over stdio in file mode, so they don't need GHC
 
 Design notes for possible future features are in `feature-designs.md`, `midi-input-design.md` and `websocket-design.md`.
 
+### Releasing
+
+Bump `version` in `package.json`, update `CHANGELOG.md`, merge, then tag:
+
+```bash
+git tag v1.2.0 && git push origin v1.2.0
+```
+
+`.github/workflows/release.yml` checks the tag matches `package.json`, runs the tests and publishes to npm with provenance. It uses npm trusted publishing if the package has this workflow set as a trusted publisher on npmjs.com, and otherwise an `NPM_TOKEN` repository secret.
+
 ## License
 
 MIT
