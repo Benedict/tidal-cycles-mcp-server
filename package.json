@@ -25,7 +25,8 @@
     "rebuild": "npm run clean && npm run build",
     "typecheck:tidal": "tsx scripts/typecheck-tidal.ts",
     "smoke:ghci": "tsx scripts/smoke-ghci.ts",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm test",
+    "bundle": "tsx scripts/build-mcpb.ts"
   },
   "keywords": [
     "tidalcycles",

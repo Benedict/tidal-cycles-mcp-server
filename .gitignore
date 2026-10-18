@@ -33,3 +33,7 @@ tidal-mcp-output.tidal
 # Logs
 logs/
 *.log
+
+# Claude Desktop bundle (npm run bundle)
+.mcpb-build/
+*.mcpb

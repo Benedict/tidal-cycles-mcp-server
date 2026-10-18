@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Install with `npx -y tidal-mcp-server`; the package ships its own `BootTidal.hs`
+- A Claude Desktop bundle (`.mcpb`) on each GitHub release, for one-click install
 - `tidal_set_layer`, `tidal_remove_layer`: build a channel from named layers
 - `tidal_autopilot`: keeps layered channels changing between turns
 - `tidal_palette`: idioms that combine well, including genre starting points
