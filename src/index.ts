@@ -26,6 +26,16 @@ import { GhciSession, TidalError } from "./ghci.js";
 import { SoundLibrary, describeLibrary, loadSoundLibrary, unknownSounds } from "./samples.js";
 import { OscSender, TIDAL_DEFAULT_CTRL_PORT, ctrlPortFromBootFile } from "./osc.js";
 import {
+  ShareResponse,
+  ShareServer,
+  defaultShareDir,
+  isBootStatement,
+  parsePlayback,
+  socketPathIn,
+  stripHighlighting,
+  writeGhciWrapper,
+} from "./share.js";
+import {
   HUSH_COMMAND,
   evalCommand,
   ghciBlock,
@@ -99,6 +109,7 @@ class TidalMCPServer {
   /** Counts hushes, so a pattern still being sent when one happens isn't recorded as playing */
   private hushes = 0;
   private fileWrites: Promise<void> = Promise.resolve();
+  private share?: ShareServer;
 
   constructor(config: TidalConfig) {
     this.config = config;
@@ -616,6 +627,14 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       return fullPattern;
     }
 
+    await this.recordPlayed(channel, pattern, request);
+    return fullPattern;
+  }
+
+  /** Records a pattern Tidal has accepted: state, history, log and WebSocket clients. */
+  private async recordPlayed(channel: string, pattern: string, request: string): Promise<void> {
+    const fullPattern = evalCommand(channel, pattern);
+
     // Log the pattern evaluation
     await this.logPatternEvaluation(request, channel, pattern);
 
@@ -647,8 +666,6 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         timestamp: Date.now()
       });
     }
-
-    return fullPattern;
   }
 
   private async setChannelLayer(args: Record<string, unknown>) {
@@ -808,6 +825,20 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     this.autopilot.stop();
     this.hushes++;
     await this.send(HUSH_COMMAND);
+    await this.recordHush();
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: "✓ All patterns stopped (hushed).",
+        },
+      ],
+    };
+  }
+
+  private async recordHush(): Promise<void> {
+    this.autopilot.stop();
     // Log the action
     await this.logAction("HUSH", "Stopped all patterns");
 
@@ -826,20 +857,24 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         timestamp: Date.now()
       });
     }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: "✓ All patterns stopped (hushed).",
-        },
-      ],
-    };
   }
 
   private async silence(channel: unknown) {
     assertChannel(channel);
     await this.send(silenceCommand(channel));
+    await this.recordSilence(channel);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `✓ Silenced ${channel}.`,
+        },
+      ],
+    };
+  }
+
+  private async recordSilence(channel: string): Promise<void> {
     // Log the action
     await this.logAction("SILENCE", `Silenced channel ${channel}`);
 
@@ -850,15 +885,59 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     }
     this.layers.delete(channel);
     this.autopilot.sync();
+  }
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `✓ Silenced ${channel}.`,
-        },
-      ],
-    };
+  /**
+   * Runs a statement from an editor sharing the session (see share.ts), and
+   * keeps the server's state in step with what it played.
+   */
+  private async runShared(code: string): Promise<ShareResponse> {
+    if (isBootStatement(code)) {
+      return { output: "" };
+    }
+    try {
+      await this.ensureGhci();
+    } catch (error) {
+      return { output: "", error: `Tidal isn't running: ${(error as Error).message}` };
+    }
+
+    let output: string;
+    try {
+      output = await this.ghci!.run(code);
+    } catch (error) {
+      return { output: "", error: (error as Error).message };
+    }
+
+    const playback = parsePlayback(code);
+    if (playback?.kind === "eval") {
+      this.layers.delete(playback.channel);
+      this.autopilot.sync();
+      await this.recordPlayed(playback.channel, stripHighlighting(playback.pattern), `From the editor on ${playback.channel}`);
+    } else if (playback?.kind === "silence") {
+      await this.recordSilence(playback.channel);
+    } else if (playback?.kind === "hush") {
+      this.soloedChannels.clear();
+      await this.recordHush();
+    }
+    return { output };
+  }
+
+  /** With TIDAL_SHARE_SESSION=true, lets an editor use this server's Tidal (see share.ts). */
+  private async startSharing(): Promise<void> {
+    if (process.platform === "win32") {
+      console.error("[SHARE] Sharing the session isn't supported on Windows");
+      return;
+    }
+    const dir = defaultShareDir();
+    const share = new ShareServer(socketPathIn(dir), (code) => this.runShared(code));
+    if (!(await share.start())) return;
+    this.share = share;
+    const bin = writeGhciWrapper({
+      dir,
+      attachScript: path.join(PACKAGE_ROOT, "dist", "attach.js"),
+      realGhci: process.env.GHCI_PATH || "ghci",
+    });
+    console.error(`[SHARE] Point your editor's ghci path at ${bin} to share this Tidal session`);
   }
 
   private async getState() {
@@ -1121,6 +1200,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     console.error('[CLEANUP] Shutting down server...');
     this.autopilot.stop();
     for (const timer of this.ramps.values()) clearInterval(timer);
+    this.share?.stop();
     this.osc?.close();
     
     if (this.ghci) {
@@ -1177,6 +1257,9 @@ Log File: ${this.logFile}
     // the next tool call retries and reports why.
     if (this.config.useGhci) {
       this.ensureGhci().catch((error) => console.error(`[GHCI] Startup failed: ${error.message}`));
+      if (process.env.TIDAL_SHARE_SESSION === "true" || process.env.TIDAL_SHARE_SESSION === "1") {
+        this.startSharing().catch((error) => console.error(`[SHARE] Couldn't share the session: ${error.message}`));
+      }
     }
   }
 }
