@@ -270,3 +270,11 @@ test("hush wins over autopilot changes that are still being sent", async () => {
     assert.match((await call("tidal_get_state")).text, /No active patterns/, `round ${round}`);
   }
 });
+
+test("file mode rejects code with a :} line too, and writes nothing", async () => {
+  const before = await fs.readFile(tidalFile, "utf-8").catch(() => "");
+  const res = await call("tidal_eval", { channel: "d5", pattern: 's "bd"\n:}' });
+  assert.equal(res.isError, true);
+  assert.match(res.text, /can't contain a line that is just :\{ or :\}/);
+  assert.equal(await fs.readFile(tidalFile, "utf-8").catch(() => ""), before);
+});
