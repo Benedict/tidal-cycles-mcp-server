@@ -101,3 +101,24 @@ test("reports why Tidal couldn't start", async () => {
   assert.equal(res.isError, true);
   assert.match(res.text, /Couldn't start Tidal: Couldn't run .*no-such-ghci/);
 });
+
+test("finds ghci and the boot file without PATH, despite stray spaces", { skip: process.platform === "win32" }, async () => {
+  // Like an app started from the Dock: no PATH, ghci where ghcup installs it
+  const home = path.join(tmpDir, "home");
+  const ghci = path.join(home, ".ghcup", "bin", "ghci");
+  await fs.mkdir(path.dirname(ghci), { recursive: true });
+  await fs.writeFile(ghci, `#!/bin/sh\nexec "${process.execPath}" "${fakeGhci}" "$@"\n`, { mode: 0o755 });
+
+  const app = await connect({ PATH: "", HOME: home, GHCI_PATH: "", TIDAL_BOOT_PATH: " ~/BootTidal.hs " });
+  const res = await call(app, "tidal_eval", { channel: "d3", pattern: 's "cp"' });
+  assert.equal(res.isError, false, res.text);
+  assert.ok((await received()).includes('d3 $ s "cp"'));
+});
+
+test("says where it looked when it can't find ghci", { skip: process.platform === "win32" }, async () => {
+  const lost = await connect({ PATH: "", HOME: path.join(tmpDir, "empty-home"), GHCI_PATH: "ghci" });
+  const res = await call(lost, "tidal_eval", { channel: "d1", pattern: 's "bd"' });
+  assert.equal(res.isError, true);
+  assert.match(res.text, /Couldn't find ghci\. Looked in:/);
+  assert.match(res.text, /empty-home\/\.ghcup\/bin\/ghci/);
+});

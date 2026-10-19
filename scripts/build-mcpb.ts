@@ -98,7 +98,7 @@ const manifest = {
     ghci_path: {
       type: "string",
       title: "ghci",
-      description: "Path to ghci. With ghcup it's usually ~/.ghcup/bin/ghci (C:\\ghcup\\bin\\ghci.exe on Windows). Leave as ghci if it's on your PATH.",
+      description: "Path to ghci. Left as ghci, the server looks on your PATH, then where ghcup and Homebrew install it (~/.ghcup/bin, C:\\ghcup\\bin on Windows).",
       default: "ghci",
     },
     boot_path: {
@@ -111,7 +111,8 @@ const manifest = {
       type: "string",
       title: "Output file",
       description: "Where to write code in file mode. The session log goes next to it.",
-      default: "${HOME}/tidal-mcp-output.tidal",
+      // Claude Desktop passes ${HOME} through unexpanded; the server expands ~
+      default: "~/tidal-mcp-output.tidal",
     },
     ui_port: {
       type: "string",

@@ -92,7 +92,7 @@ claude mcp add tidal \
   -- npx -y tidal-mcp-server
 ```
 
-Use `which ghci` to find `GHCI_PATH`. With ghcup it's usually `~/.ghcup/bin/ghci`. On Windows, use `where ghci` (with ghcup, usually `C:\ghcup\bin\ghci.exe`).
+If you leave out `GHCI_PATH`, the server looks for `ghci` on its `PATH`, then where ghcup and Homebrew install it (`~/.ghcup/bin`, `/opt/homebrew/bin`, `/usr/local/bin`; `C:\ghcup\bin` on Windows). Apps started from the Dock or Start menu don't get your shell's `PATH`, so if your `ghci` is somewhere else, set `GHCI_PATH` (`which ghci`, or `where ghci` on Windows, tells you where it is). Path settings can start with `~`.
 
 The server boots Tidal with the `BootTidal.hs` it ships with. To use your own instead, for example the one your editor uses, set `TIDAL_BOOT_PATH`.
 
@@ -192,7 +192,7 @@ Each session is also written to `tidal-mcp-session.log`, next to `TIDAL_FILE`, o
 |----------|---------|--|
 | `TIDAL_USE_GHCI` | `false` | `true` for direct GHCi mode |
 | `TIDAL_BOOT_PATH` | the `BootTidal.hs` in the package | Boot script passed to GHCi |
-| `GHCI_PATH` | `ghci` | GHCi binary |
+| `GHCI_PATH` | `ghci`, looked for on `PATH`, then in ghcup's and Homebrew's folders | GHCi binary |
 | `TIDAL_FILE` | `./tidal-mcp-output.tidal` | Output file in file mode |
 | `TIDAL_LOG_FILE` | next to `TIDAL_FILE` | Session log |
 | `TIDAL_QUARKS_PATH` | SuperCollider's `downloaded-quarks` folder | Where to find Dirt-Samples and SuperDirt, if SuperCollider keeps them somewhere unusual |
@@ -209,7 +209,7 @@ For the WebSocket transport and its settings, see [WEBSOCKET-USAGE.md](WEBSOCKET
 
 ## Troubleshooting
 
-**`spawn ghci ENOENT`:** GHCi isn't on the server's `PATH`. Set `GHCI_PATH` to the full path.
+**`Couldn't find ghci`:** the error lists where the server looked. Set `GHCI_PATH` to the full path of `ghci`.
 
 **Nothing plays:**
 1. Check SuperDirt is running and shows `listening to Tidal on port 57120`.

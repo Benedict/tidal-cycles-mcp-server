@@ -36,6 +36,7 @@ import {
   writeGhciWrapper,
 } from "./share.js";
 import { UiServer, composeStrudel } from "./ui.js";
+import { findGhci, pathSetting } from "./settings.js";
 import {
   HUSH_COMMAND,
   evalCommand,
@@ -996,7 +997,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     const bin = writeGhciWrapper({
       dir,
       attachScript: path.join(PACKAGE_ROOT, "dist", "attach.js"),
-      realGhci: process.env.GHCI_PATH || "ghci",
+      realGhci: this.ghciPath(),
     });
     console.error(`[SHARE] Point your editor's ghci path at ${bin} to share this Tidal session`);
   }
@@ -1412,8 +1413,14 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
   private ensureGhci(): Promise<void> {
     if (this.ghci?.alive) return Promise.resolve();
     if (!this.ghciStarting) {
+      let ghciPath: string;
+      try {
+        ghciPath = this.ghciPath();
+      } catch (error) {
+        return Promise.reject(error);
+      }
       this.ghci ??= new GhciSession({
-        ghciPath: process.env.GHCI_PATH || "ghci",
+        ghciPath,
         bootPath: this.config.bootTidalPath || DEFAULT_BOOT_PATH,
       });
       this.ghciStarting = this.ghci.start().finally(() => {
@@ -1421,6 +1428,15 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       });
     }
     return this.ghciStarting;
+  }
+
+  /** The ghci to run: GHCI_PATH, or ghci found on PATH or where ghcup and Homebrew put it. */
+  private ghciPath(): string {
+    const found = findGhci(process.env.GHCI_PATH);
+    if (!found.path) {
+      throw new Error(`Couldn't find ghci. Looked in:\n${found.tried.map((p) => `  ${p}`).join("\n")}\nSet GHCI_PATH to the full path of ghci.`);
+    }
+    return found.path;
   }
 
   private async sendToGhci(code: string): Promise<void> {
@@ -1509,10 +1525,10 @@ Log File: ${this.logFile}
 }
 
 // Main execution
-const tidalFile = process.env.TIDAL_FILE || path.join(process.cwd(), "tidal-mcp-output.tidal");
+const tidalFile = pathSetting(process.env.TIDAL_FILE) ?? path.join(process.cwd(), "tidal-mcp-output.tidal");
 const useGhci = process.env.TIDAL_USE_GHCI === "true" || process.env.TIDAL_USE_GHCI === "1";
-const bootTidalPath = process.env.TIDAL_BOOT_PATH;
-const logFile = process.env.TIDAL_LOG_FILE; // Optional: custom log file path
+const bootTidalPath = pathSetting(process.env.TIDAL_BOOT_PATH);
+const logFile = pathSetting(process.env.TIDAL_LOG_FILE); // Optional: custom log file path
 
 // Transport configuration
 const transport = (process.env.TIDAL_TRANSPORT as 'stdio' | 'websocket') || 'stdio';
