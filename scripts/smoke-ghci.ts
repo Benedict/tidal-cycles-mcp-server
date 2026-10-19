@@ -13,6 +13,7 @@ import * as fs from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { spawn } from "node:child_process";
+import { GhciSession, TidalError } from "../src/ghci.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "tidal-smoke-"));
@@ -85,6 +86,32 @@ try {
   }
 
   await check("silences the channel", "tidal_silence", { channel: "d9" }, { error: false });
+  await check("sets the tempo", "tidal_set_tempo", { bpm: 120 }, { error: false });
+
+  // The session log is meant to be replayed in an editor: every code block must be valid Tidal
+  const status = await client.callTool({ name: "tidal_status", arguments: {} });
+  const logFile = (status.content as Array<{ text: string }>)[0].text.match(/Session log: (.*)/)![1];
+  const blocks = (await fs.readFile(logFile, "utf-8")).trim().split(/\n\n/)
+    .map((b) => b.split("\n").filter((l) => !l.startsWith("--")).join("\n"))
+    .filter(Boolean);
+  const replay = new GhciSession({
+    ghciPath: process.env.GHCI_PATH || "ghci",
+    bootPath: process.env.SMOKE_BOOT_PATH || path.join(root, "BootTidal.hs"),
+    allowBusyCtrlPort: true, // the server's Tidal has it
+    log: () => {},
+  });
+  await replay.start();
+  const invalid: string[] = [];
+  for (const block of blocks) {
+    await replay.run(`:t (${block})`).catch((e) => {
+      if (!(e instanceof TidalError)) throw e;
+      invalid.push(`${block}\n${e.message}`);
+    });
+  }
+  replay.stop();
+  const replayable = blocks.length >= 5 && invalid.length === 0;
+  if (!replayable) failures++;
+  console.log(`${replayable ? "✓" : "✗"} the session log's ${blocks.length} code blocks are all valid Tidal${replayable ? "" : `\n${invalid.join("\n\n")}`}`);
 } finally {
   await client.close();
   await fs.rm(tmpDir, { recursive: true, force: true });

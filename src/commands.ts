@@ -43,6 +43,14 @@ export function assertNoBlockMarkers(code: string): void {
   }
 }
 
+// What tidal_set_control does over OSC, as code: for replaying the session log.
+// Needs `tidal` bound to the stream, as BootTidal.hs does.
+export function controlCommand(name: string, value: number | string): string {
+  return typeof value === "number"
+    ? `streamSetF tidal ${JSON.stringify(name)} (${value})`
+    : `streamSetS tidal ${JSON.stringify(name)} ${JSON.stringify(value)}`;
+}
+
 // Tidal measures tempo in cycles per second; this assumes four beats per cycle
 export function tempoCommand(bpm: number): string {
   return `setcps (${bpm}/60/4)`;

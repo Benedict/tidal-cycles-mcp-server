@@ -13,6 +13,7 @@ import * as path from "node:path";
 import { GhciSession, TidalError } from "../src/ghci.js";
 import {
   HUSH_COMMAND,
+  controlCommand,
   evalCommand,
   silenceCommand,
   soloCommand,
@@ -45,6 +46,8 @@ const checks: Check[] = [
   io("unsolo", unsoloCommand(["d2", "d4"])),
   io("hush", HUSH_COMMAND),
   io("tempo", tempoCommand(128.5)),
+  io("control (number)", controlCommand("cutoff", -0.25)),
+  io("control (string)", controlCommand("bank", 'say "hi"')),
   io("composed layers", evalCommand("d1", composePattern(layered))),
   io("multi-line eval", evalCommand("d1", 'every 2 (fast 2)\n  $ s "bd sd"')),
   ...Object.entries(PALETTE_TRANSFORMS).flatMap(([group, entries]) =>
