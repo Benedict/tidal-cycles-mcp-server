@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Path settings ignore stray spaces and expand `~` and `${HOME}` (Claude Desktop passed `${HOME}` through unexpanded, so the session log couldn't be written)
+- With `GHCI_PATH` unset, `ghci` is found in ghcup's and Homebrew's folders when it isn't on `PATH`, as for apps started from the Dock; the error lists where it looked
+
 ## [1.1.0] - 2026-10-19
 
 ### Added
