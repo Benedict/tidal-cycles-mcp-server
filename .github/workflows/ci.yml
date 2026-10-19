@@ -100,7 +100,7 @@ jobs:
         npm run smoke:ghci
 
   bundle:
-    # Builds and validates the Claude Desktop bundle (.mcpb)
+    # Checks the npm package, and builds and validates the Claude Desktop bundle (.mcpb)
     runs-on: ubuntu-latest
 
     steps:
@@ -115,7 +115,13 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    - name: Build the bundle
+    - name: Check the npm package
+      # npm quietly fixes or drops package.json fields it doesn't like when
+      # publishing (it once dropped the bin entry); fail instead
       run: |
         npm run build
-        npm run bundle
+        npm publish --dry-run --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/publish.log"
+        ! grep -q "auto-corrected" "$RUNNER_TEMP/publish.log"
+
+    - name: Build the bundle
+      run: npm run bundle
