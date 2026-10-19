@@ -28,9 +28,9 @@ It works with any MCP client, not only Claude, including clients that run local 
 
 ## Install
 
-**Claude Desktop:** download `tidal-mcp-server.mcpb` from the [latest release](https://github.com/Benedict/tidal-cycles-mcp-server/releases/latest) and open it. Claude Desktop shows an install dialog with the settings: whether to run Tidal for you, your `ghci` path, and an optional port for the web pages. You can switch the server on and off in Claude Desktop's settings.
+**Claude Desktop:** download `tidal-mcp-server.mcpb` from the [latest release](https://github.com/Benedict/tidal-cycles-mcp-server/releases/latest) and open it. Claude Desktop shows an install dialog with the settings: whether to run Tidal for you, your `ghci` path, and an optional port for the web pages. You can switch the server on and off in Claude Desktop's settings. A bundle doesn't update itself: `tidal_status` says when a newer release is out, and you install its `.mcpb` the same way.
 
-**Other clients, or configuring by hand:** your MCP client runs the server with `npx`, which downloads it on first use. See [Configure your client](#configure-your-client).
+**Other clients, or configuring by hand:** your MCP client runs the server with `npx`, which downloads it on first use. See [Configure your client](#configure-your-client). npx checks npm each time the client starts the server, so you get new releases by restarting it. The examples ask for `tidal-mcp-server@^1`, so a 2.0 with breaking changes never installs itself. To update only when you choose, pin an exact version, like `tidal-mcp-server@1.2.0`.
 
 To work on the server itself, see [Development](#development).
 
@@ -73,7 +73,7 @@ Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json
   "mcpServers": {
     "tidal": {
       "command": "npx",
-      "args": ["-y", "tidal-mcp-server"],
+      "args": ["-y", "tidal-mcp-server@^1"],
       "env": {
         "TIDAL_USE_GHCI": "true",
         "GHCI_PATH": "/path/to/ghci"
@@ -89,7 +89,7 @@ Claude Code:
 claude mcp add tidal \
   -e TIDAL_USE_GHCI=true \
   -e GHCI_PATH="$(which ghci)" \
-  -- npx -y tidal-mcp-server
+  -- npx -y "tidal-mcp-server@^1"
 ```
 
 If you leave out `GHCI_PATH`, the server looks for `ghci` on its `PATH`, then where ghcup and Homebrew install it (`~/.ghcup/bin`, `/opt/homebrew/bin`, `/usr/local/bin`; `C:\ghcup\bin` on Windows). Apps started from the Dock or Start menu don't get your shell's `PATH`, so if your `ghci` is somewhere else, set `GHCI_PATH` (`which ghci`, or `where ghci` on Windows, tells you where it is). Path settings can start with `~`.
@@ -204,6 +204,7 @@ Each session is logged to its own file in `tidal-mcp-sessions/`, next to `TIDAL_
 | `TIDAL_CTRL_HOST` | `127.0.0.1` | Host for the control port |
 | `TIDAL_UI_PORT` | — | Serve the control page and the Strudel page on this port |
 | `TIDAL_UI_HOST` | `127.0.0.1` | Address for the pages; `0.0.0.0` lets other machines watch (only this machine can press buttons) |
+| `TIDAL_UPDATE_CHECK` | `true` | `false` stops `tidal_status` checking npm (at most once a day) for a newer release |
 | `TIDAL_TRANSPORT` | `stdio` | `websocket` to serve MCP over WebSocket instead |
 
 For the WebSocket transport and its settings, see [WEBSOCKET-USAGE.md](WEBSOCKET-USAGE.md).

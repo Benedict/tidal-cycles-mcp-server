@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { fakeGhci } from "./fixtures/paths.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import * as http from "node:http";
 
 // Drives the built server in direct GHCi mode against test/fixtures/fake-ghci.mjs.
 
@@ -27,6 +28,7 @@ async function connect(env: Record<string, string>): Promise<Client> {
         TIDAL_BOOT_PATH: path.join(tmpDir, "BootTidal.hs"),
         GHCI_PATH: fakeGhci,
         FAKE_GHCI_LOG: logFile,
+        TIDAL_UPDATE_CHECK: "false",
         ...env,
       } as Record<string, string>,
       stderr: "ignore",
@@ -179,4 +181,22 @@ test("code with a :} line is rejected before it reaches GHCi", async () => {
   assert.equal(layer.isError, true);
   assert.equal((await received()).length, before);
   assert.doesNotMatch((await call(client, "tidal_get_state")).text, /d4/);
+});
+
+test("tidal_status says when a newer release is out", async () => {
+  const registry = http.createServer((_req, res) => res.end(JSON.stringify({ version: "99.0.0" })));
+  await new Promise<void>((resolve) => registry.listen(0, "127.0.0.1", resolve));
+  try {
+    const { port } = registry.address() as { port: number };
+    const checking = await connect({
+      TIDAL_UPDATE_CHECK: "true",
+      TIDAL_UPDATE_URL: `http://127.0.0.1:${port}/latest`,
+      TIDAL_SHARE_DIR: path.join(tmpDir, "update-share"),
+    });
+    const { text } = await call(checking, "tidal_status");
+    assert.match(text, /Update available: 99\.0\.0 \(this is \d+\.\d+\.\d+\)[\s\S]*releases\/latest/);
+    assert.match((await call(client, "tidal_status")).text, /Update check: off/);
+  } finally {
+    registry.close();
+  }
 });

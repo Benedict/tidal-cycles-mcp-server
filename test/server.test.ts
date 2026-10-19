@@ -49,6 +49,7 @@ before(async () => {
       args: ["dist/index.js"],
       env: { ...process.env, TIDAL_FILE: tidalFile, TIDAL_QUARKS_PATH: path.join(tmpDir, "quarks"), TIDAL_SAMPLE_PATHS: "",
         TIDAL_CTRL_PORT: String(controlPort.address().port),
+        TIDAL_UPDATE_CHECK: "false",
       } as Record<string, string>,
       stderr: "ignore",
     })
