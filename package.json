@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "tidal-mcp-server": "./dist/index.js"
+    "tidal-mcp-server": "dist/index.js"
   },
   "files": [
     "dist/",
@@ -46,7 +46,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Benedict/tidal-cycles-mcp-server.git"
+    "url": "git+https://github.com/Benedict/tidal-cycles-mcp-server.git"
   },
   "bugs": {
     "url": "https://github.com/Benedict/tidal-cycles-mcp-server/issues"
