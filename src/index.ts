@@ -37,9 +37,11 @@ import {
 } from "./share.js";
 import { UiServer, composeStrudel } from "./ui.js";
 import { findGhci, pathSetting } from "./settings.js";
+import { SessionLog, sessionLogName } from "./session-log.js";
 import {
   HUSH_COMMAND,
   assertNoBlockMarkers,
+  controlCommand,
   evalCommand,
   ghciBlock,
   silenceCommand,
@@ -98,7 +100,7 @@ class TidalMCPServer {
   private ghci?: GhciSession;
   private ghciStarting?: Promise<void>;
   private patternHistory: Array<{ channel: string; pattern: string; timestamp: number }> = [];
-  private logFile: string;
+  private log: SessionLog;
   private wsTransport?: WebSocketServerTransport;
   private soloedChannels: Set<string> = new Set();
   private layers: Map<string, Layer[]> = new Map();
@@ -123,9 +125,14 @@ class TidalMCPServer {
 
   constructor(config: TidalConfig) {
     this.config = config;
-    // Set log file path - same directory as the tidal output file
-    const tidalDir = path.dirname(config.tidalFile);
-    this.logFile = config.logFile || path.join(tidalDir, "tidal-mcp-session.log");
+    // A new log for each session, in a folder next to the output file, unless
+    // TIDAL_LOG_FILE names one file to keep adding to
+    const logFile = config.logFile ?? path.join(path.dirname(config.tidalFile), "tidal-mcp-sessions", sessionLogName());
+    this.log = new SessionLog(logFile, [
+      `tidal-mcp-server ${VERSION} session, started ${new Date().toISOString()}`,
+      `Mode: ${config.useGhci ? "GHCi" : "file"}, transport: ${config.transport}`,
+      "Each block is code the server ran. Evaluate one in your editor to replay that moment.",
+    ]);
 
     this.server = new Server(
       {
@@ -181,43 +188,6 @@ class TidalMCPServer {
   /**
    * Logs a pattern evaluation to the human-readable log file
    */
-  private async logPatternEvaluation(request: string, channel: string, pattern: string) {
-    const timestamp = new Date().toISOString();
-    const fullPattern = evalCommand(channel, pattern);
-
-    const logEntry = `${timestamp}
-REQUEST: ${request}
-RESPONSE: ${fullPattern}
----
-
-`;
-
-    try {
-      await fs.appendFile(this.logFile, logEntry, 'utf-8');
-    } catch (error) {
-      console.error(`Failed to write to log file: ${error}`);
-    }
-  }
-
-  /**
-   * Logs other actions (hush, silence, etc.) to the log file
-   */
-  private async logAction(action: string, details?: string) {
-    const timestamp = new Date().toISOString();
-
-    const logEntry = `${timestamp}
-ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
----
-
-`;
-
-    try {
-      await fs.appendFile(this.logFile, logEntry, 'utf-8');
-    } catch (error) {
-      console.error(`Failed to write to log file: ${error}`);
-    }
-  }
-
   private setupToolHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
@@ -667,7 +637,9 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: `✓ Evaluated on ${channel}:\n${fullPattern}\n\nPattern is now playing.${this.soundWarning(pattern)}`,
+          text: this.config.useGhci
+            ? `✓ Evaluated on ${channel}:\n${fullPattern}\n\nPattern is now playing.${this.soundWarning(pattern)}`
+            : `✓ Written to ${this.config.tidalFile}:\n${fullPattern}\n\n${this.inFile("hear it")}${this.soundWarning(pattern)}`,
         },
       ],
     };
@@ -689,7 +661,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       await this.send(fullPattern);
     } catch (error) {
       if (error instanceof TidalError) {
-        await this.logAction("REJECTED", `${request}\n${fullPattern}\n${error.message}`);
+        await this.log.note(`Tidal rejected: ${request}`, `${fullPattern}\n\n${error.message}`);
         const still = this.channels.get(channel)?.active
           ? `The previous pattern on ${channel} is still playing.`
           : `Nothing changed on ${channel}.`;
@@ -714,7 +686,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     const fullPattern = evalCommand(channel, pattern);
 
     // Log the pattern evaluation
-    await this.logPatternEvaluation(request, channel, pattern);
+    await this.log.code(request, fullPattern);
 
     // Update state
     this.channels.set(channel, {
@@ -798,6 +770,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         {
           type: "text",
           text: `✓ Set ${kind} layer "${name}" on ${channel}:\n${fullPattern}\n\nLayers:\n${describeLayers(updated)}` +
+            (this.config.useGhci ? "" : `\n\n${this.inFile("hear it")}`) +
             this.soundWarning([code, ...((variants as string[] | undefined) ?? [])].join("\n")),
         },
       ],
@@ -815,7 +788,12 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       // silence() clears the channel's layers
       await this.silence(channel);
       return {
-        content: [{ type: "text", text: `✓ Removed layer "${name}". ${channel} has no layers left and is silenced.` }],
+        content: [{
+          type: "text",
+          text: this.config.useGhci
+            ? `✓ Removed layer "${name}". ${channel} has no layers left and is silenced.`
+            : `✓ Removed layer "${name}". ${channel} has no layers left. ${this.inFile(`silence ${channel}`)}`,
+        }],
       };
     }
 
@@ -834,7 +812,8 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: `✓ Removed layer "${name}" from ${channel}:\n${fullPattern}\n\nLayers:\n${describeLayers(updated)}`,
+          text: `✓ Removed layer "${name}" from ${channel}:\n${fullPattern}\n\nLayers:\n${describeLayers(updated)}` +
+            (this.config.useGhci ? "" : `\n\n${this.inFile("hear it")}`),
         },
       ],
     };
@@ -856,7 +835,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       case "start": {
         this.autopilot.start(overrides);
         const s = this.autopilot.getSettings();
-        await this.logAction("AUTOPILOT START", JSON.stringify(s));
+        await this.log.note(`Autopilot started: ${JSON.stringify(s)}`);
         const moving = this.autopilot.activeLayerCount();
         const note = moving === 0
           ? " No layers can change yet: give layers variants, or add transform layers."
@@ -866,21 +845,31 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
             {
               type: "text",
               text: `✓ Autopilot running: ${moving} layer(s) changing every ${s.minSeconds}–${s.maxSeconds}s, ` +
-                `lay-out chance ${s.layOutChance}.${note}`,
+                `lay-out chance ${s.layOutChance}.${note}` +
+                (this.config.useGhci
+                  ? ""
+                  : ` In file mode each change is only written to ${this.config.tidalFile}, so you hear a change when you evaluate it.`),
             },
           ],
         };
       }
       case "pause": {
         this.autopilot.pause();
-        await this.logAction("AUTOPILOT PAUSE");
-        return { content: [{ type: "text", text: "✓ Autopilot paused. Patterns keep playing." }] };
+        await this.log.note("Autopilot paused");
+        return { content: [{ type: "text", text: this.config.useGhci ? "✓ Autopilot paused. Patterns keep playing." : "✓ Autopilot paused." }] };
       }
       case "stop": {
         this.autopilot.stop();
-        await this.logAction("AUTOPILOT STOP");
+        await this.log.note("Autopilot stopped");
         await this.hush();
-        return { content: [{ type: "text", text: "✓ Autopilot stopped and everything hushed." }] };
+        return {
+          content: [{
+            type: "text",
+            text: this.config.useGhci
+              ? "✓ Autopilot stopped and everything hushed."
+              : `✓ Autopilot stopped. ${this.inFile("stop everything")}`,
+          }],
+        };
       }
       case "status": {
         const s = this.autopilot.getSettings();
@@ -899,6 +888,11 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     }
   }
 
+  /** In file mode nothing plays until the user evaluates the file, so replies say so. */
+  private inFile(action: string): string {
+    return `Written to ${this.config.tidalFile}. Evaluate it in your editor to ${action}.`;
+  }
+
   private async hush() {
     console.error(`[HUSH] Stopping all patterns`);
     this.autopilot.stop();
@@ -910,7 +904,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: "✓ All patterns stopped (hushed).",
+          text: this.config.useGhci ? "✓ All patterns stopped (hushed)." : `✓ ${this.inFile("stop everything")}`,
         },
       ],
     };
@@ -919,7 +913,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
   private async recordHush(): Promise<void> {
     this.autopilot.stop();
     // Log the action
-    await this.logAction("HUSH", "Stopped all patterns");
+    await this.log.code("Hush", HUSH_COMMAND);
 
     // Clear all channel states
     for (const state of this.channels.values()) {
@@ -947,7 +941,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: `✓ Silenced ${channel}.`,
+          text: this.config.useGhci ? `✓ Silenced ${channel}.` : `✓ ${this.inFile(`silence ${channel}`)}`,
         },
       ],
     };
@@ -955,7 +949,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
 
   private async recordSilence(channel: string): Promise<void> {
     // Log the action
-    await this.logAction("SILENCE", `Silenced channel ${channel}`);
+    await this.log.code(`Silence ${channel}`, silenceCommand(channel));
 
     const state = this.channels.get(channel);
     if (state) {
@@ -1046,7 +1040,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       ui.hushStrudel();
       this.strudelBlocks.clear();
       this.strudelLastError = undefined;
-      await this.logAction("STRUDEL HUSH");
+      await this.log.note("Strudel hushed");
       return this.strudelText("✓ Strudel hushed.");
     }
 
@@ -1107,7 +1101,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     }
     if (!result.ok) {
       this.strudelLastError = result.error;
-      await this.logAction("STRUDEL REJECTED", `${request}\n${program}\n${result.error}`);
+      await this.log.note(`Strudel rejected: ${request}`, `${program}\n\n${result.error}`);
       return this.strudelText(
         `Strudel rejected ${rejectedPart}. What was playing is still playing.\n\n${result.error}\n\n` +
           `(Line numbers count from the top of the whole program:)\n${program}`,
@@ -1118,7 +1112,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     this.strudelBlocks = blocks;
     this.strudelBpm = bpm;
     this.strudelLastError = undefined;
-    await this.logAction("STRUDEL", `${request}\n${program}`);
+    await this.log.note(`Strudel: ${request}`, program);
     return this.strudelText(`✓ ${request}. Playing on ${pages} page${pages === 1 ? "" : "s"}.\n\n${program}`);
   }
 
@@ -1149,7 +1143,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     }
     lines.push(`Control messages go to: ${this.getOsc().target}`);
     if (this.tidalLastError) lines.push(`Last error from Tidal: ${this.tidalLastError}`);
-    lines.push(`Session log: ${this.logFile}`);
+    lines.push(`Session log: ${this.log.file}`);
     if (this.ui) lines.push(`Web pages: ${this.ui.url}`);
     return lines.join("\n");
   }
@@ -1208,7 +1202,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         this.soloedChannels.clear();
         this.tidalLastError = undefined;
         await this.ensureGhci();
-        await this.logAction("RESTART TIDAL");
+        await this.log.note("Tidal restarted");
         return "Tidal restarted.";
       }
       default:
@@ -1240,6 +1234,9 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     let stateText = activeChannels.length > 0
       ? `Active channels:\n${activeChannels.join("\n")}`
       : "No active patterns.";
+    if (!this.config.useGhci && activeChannels.length > 0) {
+      stateText += `\n\n(File mode: this is what the server wrote to ${this.config.tidalFile}, not necessarily what your editor has run.)`;
+    }
     if (this.bpm !== undefined) {
       stateText += `\n\nTempo: ${this.bpm} BPM.`;
     }
@@ -1311,7 +1308,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       }, 1000 / RAMP_STEPS_PER_SECOND);
       timer.unref();
       this.ramps.set(name, timer);
-      await this.logAction("CONTROL", `${name}: ${from} → ${value} over ${seconds}s`);
+      await this.log.code(`Control ${name}: glide from ${from} over ${seconds}s`, controlCommand(name, value));
       return {
         content: [{ type: "text", text: `✓ ${name} gliding from ${from} to ${value} over ${seconds}s (via ${osc.target}).` }],
       };
@@ -1319,7 +1316,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
 
     await osc.send("/ctrl", [name, value]);
     this.controls.set(name, value);
-    await this.logAction("CONTROL", `${name} = ${value}`);
+    await this.log.code(`Control ${name}`, controlCommand(name, value));
     const note = seconds && typeof from !== "number"
       ? ` It had no previous number to glide from, so it jumped.`
       : "";
@@ -1360,48 +1357,50 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     }
     await this.send(tempoCommand(bpm));
     this.bpm = bpm;
-    await this.logAction("TEMPO", `${bpm} BPM`);
+    await this.log.code(`Tempo ${bpm} BPM`, tempoCommand(bpm));
     return {
-      content: [{ type: "text", text: `✓ Tempo set to ${bpm} BPM.` }],
+      content: [{
+        type: "text",
+        text: this.config.useGhci ? `✓ Tempo set to ${bpm} BPM.` : `✓ ${this.inFile(`set the tempo to ${bpm} BPM`)}`,
+      }],
     };
   }
 
   private async solo(channel: unknown) {
     assertChannel(channel);
-    // Log the action
-    await this.logAction("SOLO", `Soloed channel ${channel}`);
-
     await this.send(soloCommand(channel));
     this.soloedChannels.add(channel);
+    await this.log.code(`Solo ${channel}`, soloCommand(channel));
 
     return {
       content: [
         {
           type: "text",
-          text: `✓ Soloed ${channel}. All other channels are muted.`,
+          text: this.config.useGhci
+            ? `✓ Soloed ${channel}. All other channels are muted.`
+            : `✓ ${this.inFile(`solo ${channel}`)}`,
         },
       ],
     };
   }
 
   private async unsolo() {
-    // Log the action
-    await this.logAction("UNSOLO", "Restored all channels");
-
     if (this.soloedChannels.size === 0) {
       return {
         content: [{ type: "text", text: "No channels are soloed." }],
       };
     }
 
-    await this.send(unsoloCommand(Array.from(this.soloedChannels)));
+    const unsolo = unsoloCommand(Array.from(this.soloedChannels));
+    await this.send(unsolo);
     this.soloedChannels.clear();
+    await this.log.code("Unsolo", unsolo);
 
     return {
       content: [
         {
           type: "text",
-          text: "✓ Unsolo applied. All channels restored.",
+          text: this.config.useGhci ? "✓ Unsolo applied. All channels restored." : `✓ ${this.inFile("unsolo")}`,
         },
       ],
     };
@@ -1531,22 +1530,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
   }
 
   async run() {
-    // Initialize log file with header
-    const logHeader = `TidalCycles MCP Server - Session Log
-Started: ${new Date().toISOString()}
-Mode: ${this.config.useGhci ? 'Direct GHCi' : 'File-based'}
-Transport: ${this.config.transport}
-Log File: ${this.logFile}
-================================================================================
-
-`;
-
-    try {
-      await fs.writeFile(this.logFile, logHeader, 'utf-8');
-      console.error(`Session log: ${this.logFile}`);
-    } catch (error) {
-      console.error(`Failed to create log file: ${error}`);
-    }
+    console.error(`Session log: ${this.log.file} (created with the first entry)`);
 
     // Choose transport based on configuration
     if (this.config.transport === 'websocket') {

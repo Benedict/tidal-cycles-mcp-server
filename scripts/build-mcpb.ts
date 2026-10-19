@@ -110,7 +110,7 @@ const manifest = {
     tidal_file: {
       type: "string",
       title: "Output file",
-      description: "Where to write code in file mode. The session log goes next to it.",
+      description: "Where to write code in file mode. Session logs go in a tidal-mcp-sessions folder next to it.",
       // Claude Desktop passes ${HOME} through unexpanded; the server expands ~
       default: "~/tidal-mcp-output.tidal",
     },

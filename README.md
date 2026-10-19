@@ -185,7 +185,7 @@ Claude can only change the music when you message it. The autopilot keeps layere
 
 If a pattern uses a sound SuperDirt doesn't have, Tidal still accepts it, but that part is silent. So the server checks every name used with `s` or `sound` against your Dirt-Samples folder and SuperDirt's synths, and warns Claude about any it can't find.
 
-Each session is also written to `tidal-mcp-session.log`, next to `TIDAL_FILE`, or wherever `TIDAL_LOG_FILE` points.
+Each session is logged to its own file in `tidal-mcp-sessions/`, next to `TIDAL_FILE`, named by its start time. The log is a `.tidal` file: each entry is the code the server ran, under a `-- time what happened` comment, so you can open it in your editor and evaluate any block to replay that moment. Anything that isn't Tidal code, such as rejected code or Strudel programs, is commented out. Set `TIDAL_LOG_FILE` to keep adding every session to one file instead; logs are never overwritten. `tidal_status` says where the current one is.
 
 ## Environment variables
 
@@ -195,7 +195,7 @@ Each session is also written to `tidal-mcp-session.log`, next to `TIDAL_FILE`, o
 | `TIDAL_BOOT_PATH` | the `BootTidal.hs` in the package | Boot script passed to GHCi |
 | `GHCI_PATH` | `ghci`, looked for on `PATH`, then in ghcup's and Homebrew's folders | GHCi binary |
 | `TIDAL_FILE` | `./tidal-mcp-output.tidal` | Output file in file mode |
-| `TIDAL_LOG_FILE` | next to `TIDAL_FILE` | Session log |
+| `TIDAL_LOG_FILE` | a new file per session in `tidal-mcp-sessions/`, next to `TIDAL_FILE` | One session log file to add every session to |
 | `TIDAL_QUARKS_PATH` | SuperCollider's `downloaded-quarks` folder | Where to find Dirt-Samples and SuperDirt, if SuperCollider keeps them somewhere unusual |
 | `TIDAL_SAMPLE_PATHS` | — | Extra sample folders to check names against, separated by `:` (`;` on Windows). Use the same folders you load with `~dirt.loadSoundFiles` |
 | `TIDAL_SHARE_SESSION` | `false` | `true` to share the server's Tidal with your editor (GHCi mode) |

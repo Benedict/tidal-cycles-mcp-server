@@ -11,11 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tidal_status`: the settings as the server resolved them, whether Tidal starts and its version, the control port, the last error and the log file
 
 ### Changed
+- The session log is a `.tidal` file you can replay: each entry is the code that ran, under a `-- time` comment, with everything else commented out. Each session gets its own file in `tidal-mcp-sessions/` next to `TIDAL_FILE`, instead of overwriting `tidal-mcp-session.log`; `TIDAL_LOG_FILE` is now added to, not overwritten
 - In GHCi mode, Tidal starts with the first tool call that needs it, not with the server. Claude Desktop can start a copy of the server it never uses, and that copy's Tidal played too
 
 ### Fixed
 - Tidal failing to start is reported when it happens, rather than as "setcps not in scope" on the first pattern: a missing boot file, a `<no location info>` GHC error, a boot file that doesn't load Tidal, or another Tidal already on the control port
 - Code containing a line that is just `:{` or `:}` is rejected. Such a line ended the server's `:{ ... :}` block, and what followed ran as GHCi commands (`:!` runs shell commands) outside what the server tracks
+- In file mode, replies say the code was written to the file and needs evaluating, instead of "Pattern is now playing" and the like, which Claude passed on as fact
 - Path settings ignore stray spaces and expand `~` and `${HOME}` (Claude Desktop passed `${HOME}` through unexpanded, so the session log couldn't be written)
 - With `GHCI_PATH` unset, `ghci` is found in ghcup's and Homebrew's folders when it isn't on `PATH`, as for apps started from the Dock; the error lists where it looked
 

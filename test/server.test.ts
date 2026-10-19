@@ -19,9 +19,13 @@ let tidalFile: string;
 let controlPort: dgram.Socket;
 const controlMessages: Array<{ address: string; args: Array<string | number> }> = [];
 
+// Every reply, to check none claims something played (this suite runs in file mode)
+const replies: Array<{ name: string; text: string }> = [];
+
 async function call(name: string, args: Record<string, unknown> = {}) {
   const result = await client.callTool({ name, arguments: args });
   const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+  replies.push({ name, text });
   return { text, isError: result.isError === true };
 }
 
@@ -277,4 +281,40 @@ test("file mode rejects code with a :} line too, and writes nothing", async () =
   assert.equal(res.isError, true);
   assert.match(res.text, /can't contain a line that is just :\{ or :\}/);
   assert.equal(await fs.readFile(tidalFile, "utf-8").catch(() => ""), before);
+});
+
+test("in file mode, no reply claims Tidal played something", async () => {
+  // Cover the tools the rest of the suite might not
+  for (const [name, args] of [
+    ["tidal_eval", { channel: "d6", pattern: 's "bd"' }],
+    ["tidal_solo", { channel: "d6" }],
+    ["tidal_unsolo", {}],
+    ["tidal_set_tempo", { bpm: 120 }],
+    ["tidal_silence", { channel: "d6" }],
+    ["tidal_hush", {}],
+  ] as const) {
+    await call(name, args);
+  }
+  const claims = /now playing|keep playing|is silenced|are muted|channels restored|stopped \(hushed\)|everything hushed|Tempo set to|^✓ Silenced/m;
+  const tidal = replies.filter((r) => r.name.startsWith("tidal_"));
+  assert.ok(tidal.length > 20);
+  for (const { name, text } of tidal) {
+    assert.doesNotMatch(text, claims, `${name} said: ${text}`);
+  }
+  assert.match(tidal.find((r) => r.name === "tidal_eval")!.text, /Written to .*out\.tidal[\s\S]*Evaluate it in your editor to hear it\./);
+});
+
+test("the session log can be replayed: code that ran, everything else commented", async () => {
+  const status = (await call("tidal_status")).text;
+  const logFile = status.match(/Session log: (.*)/)![1];
+  assert.equal(path.dirname(logFile), path.join(tmpDir, "tidal-mcp-sessions"));
+  const blocks = (await fs.readFile(logFile, "utf-8")).trim().split(/\n\n/);
+  const code = blocks.map((b) => b.split("\n").filter((l) => !l.startsWith("--")).join("\n")).filter(Boolean);
+  assert.ok(code.includes('d1 $ s "bd*2 sd"') || code.some((c) => c.startsWith("d1 $ ")), code.join("\n"));
+  assert.ok(code.includes("hush"));
+  assert.ok(code.includes("setcps (120/60/4)"));
+  assert.ok(code.includes("solo 6"));
+  assert.ok(code.some((c) => c.startsWith('streamSetF tidal "')), code.join("\n"));
+  // Rejected code is never left runnable
+  assert.ok(!code.some((c) => c.includes(":}")));
 });
