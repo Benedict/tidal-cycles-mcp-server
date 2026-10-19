@@ -166,3 +166,17 @@ test("a second Tidal on the same control port fails instead of playing too", asy
   assert.equal(res.isError, true);
   assert.match(res.text, /control port \(127\.0\.0\.1:6011\) is in use/);
 });
+
+test("code with a :} line is rejected before it reaches GHCi", async () => {
+  const before = (await received()).length;
+  const escape = await call(client, "tidal_eval", { channel: "d4", pattern: 's "bd"\n:}\n:! touch pwned' });
+  assert.equal(escape.isError, true);
+  assert.match(escape.text, /can't contain a line that is just :\{ or :\}/);
+
+  const layer = await call(client, "tidal_set_layer", {
+    channel: "d4", name: "beat", kind: "source", code: 's "bd"', variants: ['s "sn"\n  :{  '],
+  });
+  assert.equal(layer.isError, true);
+  assert.equal((await received()).length, before);
+  assert.doesNotMatch((await call(client, "tidal_get_state")).text, /d4/);
+});

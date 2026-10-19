@@ -39,6 +39,7 @@ import { UiServer, composeStrudel } from "./ui.js";
 import { findGhci, pathSetting } from "./settings.js";
 import {
   HUSH_COMMAND,
+  assertNoBlockMarkers,
   evalCommand,
   ghciBlock,
   silenceCommand,
@@ -654,6 +655,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     if (typeof pattern !== "string" || pattern.trim() === "") {
       throw new Error("Pattern must be a non-empty string");
     }
+    assertNoBlockMarkers(pattern);
 
     // A raw pattern replaces the channel's layers
     this.layers.delete(channel);
@@ -759,6 +761,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     if (variants !== undefined && (!Array.isArray(variants) || !variants.every((v) => typeof v === "string"))) {
       throw new Error("Variants must be an array of strings");
     }
+    for (const c of [code, ...((variants as string[] | undefined) ?? [])]) assertNoBlockMarkers(c);
 
     const previous = this.layers.get(channel);
     const updated = setLayer(previous ?? [], {
@@ -1448,6 +1451,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
 
   /** Sends code to Tidal: through GHCi in direct mode, otherwise to the output file. */
   private async send(code: string): Promise<void> {
+    assertNoBlockMarkers(code);
     if (this.config.useGhci) {
       await this.sendToGhci(code);
     } else {

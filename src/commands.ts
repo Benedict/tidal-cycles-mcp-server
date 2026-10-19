@@ -28,7 +28,19 @@ export const HUSH_COMMAND = "hush";
 
 // GHCi reads one line per statement; multi-line code needs a :{ ... :} block
 export function ghciBlock(code: string): string {
+  assertNoBlockMarkers(code);
   return code.includes("\n") ? `:{\n${code}\n:}` : code;
+}
+
+/**
+ * Code sent inside a :{ ... :} block mustn't contain a :} line, or what follows
+ * it runs as GHCi commands (such as :! for shell commands), outside what the
+ * server tracks.
+ */
+export function assertNoBlockMarkers(code: string): void {
+  if (code.split(/\r?\n/).some((line) => /^\s*:[{}]\s*$/.test(line))) {
+    throw new Error("Code can't contain a line that is just :{ or :}. Send the code inside the block without them.");
+  }
 }
 
 // Tidal measures tempo in cycles per second; this assumes four beats per cycle
