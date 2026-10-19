@@ -7,7 +7,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import * as fs from "fs/promises";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { WebSocketServerTransport } from "./websocket-transport.js";
@@ -114,6 +114,8 @@ class TidalMCPServer {
   private share?: ShareServer;
   private ui?: UiServer;
   private tidalLastError?: string;
+  /** Why Tidal last failed to start, until it next starts */
+  private tidalStartError?: string;
   private strudelBlocks: Map<string, string> = new Map();
   private strudelBpm?: number;
   private strudelLastError?: string;
@@ -272,6 +274,14 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
               },
             },
           },
+        },
+        {
+          name: "tidal_status",
+          description:
+            "Check the server's setup: mode, the ghci and boot file it uses (as resolved), whether Tidal is running and its version, " +
+            "the control port, the last error, and where it logs. In GHCi mode this starts Tidal if it isn't running, so it reports " +
+            "whether Tidal actually starts. Use it when something doesn't work.",
+          inputSchema: { type: "object", properties: {} },
         },
         {
           name: "tidal_set_tempo",
@@ -545,6 +555,10 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
 
           case "tidal_get_state": {
             return await this.getState();
+          }
+
+          case "tidal_status": {
+            return { content: [{ type: "text", text: await this.status() }] };
           }
 
           case "tidal_set_tempo": {
@@ -1105,6 +1119,38 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     return this.strudelText(`✓ ${request}. Playing on ${pages} page${pages === 1 ? "" : "s"}.\n\n${program}`);
   }
 
+  /** What tidal_status reports: the settings as resolved, and whether Tidal starts. */
+  private async status(): Promise<string> {
+    const lines = [`tidal-mcp-server ${VERSION}, process ${process.pid}, ${this.config.transport} transport`];
+    const bootPath = this.config.bootTidalPath || DEFAULT_BOOT_PATH;
+
+    if (this.config.useGhci) {
+      lines.push("Mode: GHCi (the server runs Tidal)");
+      const found = findGhci(process.env.GHCI_PATH);
+      lines.push(found.path ? `ghci: ${found.path}` : `ghci: not found. Looked in: ${found.tried.join(", ")}`);
+      lines.push(`Boot file: ${bootPath}${existsSync(bootPath) ? "" : " (not found)"}`);
+
+      // Starting Tidal is the real check
+      await this.ensureGhci().catch(() => {});
+      const ghci = this.ghci;
+      if (ghci?.alive) {
+        lines.push(`Tidal: running${ghci.tidalVersion ? `, version ${ghci.tidalVersion}` : ""} (GHCi process ${ghci.pid})`);
+        if (ghci.ctrlAddress) lines.push(`Control port: Tidal is listening on ${ghci.ctrlAddress}`);
+      } else {
+        lines.push(`Tidal: not running. ${this.tidalStartError ?? "It hasn't been started yet."}`);
+      }
+      if (this.share) lines.push("Sharing the session with your editor: on");
+    } else {
+      lines.push("Mode: file (your editor runs Tidal)");
+      lines.push(`Writes code to: ${this.config.tidalFile}`);
+    }
+    lines.push(`Control messages go to: ${this.getOsc().target}`);
+    if (this.tidalLastError) lines.push(`Last error from Tidal: ${this.tidalLastError}`);
+    lines.push(`Session log: ${this.logFile}`);
+    if (this.ui) lines.push(`Web pages: ${this.ui.url}`);
+    return lines.join("\n");
+  }
+
   /** Everything the control page shows. */
   private uiSnapshot() {
     return {
@@ -1417,15 +1463,27 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       try {
         ghciPath = this.ghciPath();
       } catch (error) {
+        this.tidalStartError = (error as Error).message;
         return Promise.reject(error);
       }
       this.ghci ??= new GhciSession({
         ghciPath,
         bootPath: this.config.bootTidalPath || DEFAULT_BOOT_PATH,
       });
-      this.ghciStarting = this.ghci.start().finally(() => {
-        this.ghciStarting = undefined;
-      });
+      this.ghciStarting = this.ghci
+        .start()
+        .then(
+          () => {
+            this.tidalStartError = undefined;
+          },
+          (error) => {
+            this.tidalStartError = error instanceof Error ? error.message : String(error);
+            throw error;
+          }
+        )
+        .finally(() => {
+          this.ghciStarting = undefined;
+        });
     }
     return this.ghciStarting;
   }
@@ -1445,7 +1503,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.tidalLastError = `Couldn't start Tidal: ${message}`;
-      throw new Error(`Couldn't start Tidal: ${message}\nCheck GHCI_PATH and TIDAL_BOOT_PATH.`);
+      throw new Error(`Couldn't start Tidal: ${message}\nCheck GHCI_PATH and TIDAL_BOOT_PATH; tidal_status shows the settings in use.`);
     }
     await this.ghci!.run(code);
   }
@@ -1513,10 +1571,9 @@ Log File: ${this.logFile}
       await this.startUi(Number(uiPort)).catch((error) => console.error(`[UI] Couldn't start the web page: ${error.message}`));
     }
 
-    // Start Tidal in the background once the client can reach us. If it fails,
-    // the next tool call retries and reports why.
+    // Tidal starts on first use, not here. Claude Desktop can start a second
+    // copy of the server that's never used, and its Tidal would play too.
     if (this.config.useGhci) {
-      this.ensureGhci().catch((error) => console.error(`[GHCI] Startup failed: ${error.message}`));
       if (process.env.TIDAL_SHARE_SESSION === "true" || process.env.TIDAL_SHARE_SESSION === "1") {
         this.startSharing().catch((error) => console.error(`[SHARE] Couldn't share the session: ${error.message}`));
       }

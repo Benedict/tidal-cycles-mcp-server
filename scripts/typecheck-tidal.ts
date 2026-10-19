@@ -87,13 +87,15 @@ for (const statement of exampleStatements(examples)) {
 const ghci = new GhciSession({
   ghciPath: process.env.GHCI_PATH || "ghci",
   bootPath: path.resolve(import.meta.dirname, "..", "BootTidal.hs"),
+  // Only :t runs, so another Tidal on the control port (e.g. Claude Desktop's) doesn't matter
+  allowBusyCtrlPort: true,
   log: () => {},
 });
 
 try {
   await ghci.start();
 } catch (error) {
-  console.error(`Couldn't start Tidal: ${(error as Error).message}\nSet GHCI_PATH or put ghci on PATH.`);
+  console.error(`Couldn't start Tidal: ${(error as Error).message}`);
   process.exit(2);
 }
 

@@ -95,6 +95,7 @@ before(async () => {
   if (process.platform === "win32") return;
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "tidal-share-test-"));
   logFile = path.join(tmpDir, "received.log");
+  await fs.writeFile(path.join(tmpDir, "BootTidal.hs"), "import Sound.Tidal.Context\n");
   client = new Client({ name: "test", version: "1" });
   await client.connect(
     new StdioClientTransport({

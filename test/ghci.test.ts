@@ -1,6 +1,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fakeGhci } from "./fixtures/paths.js";
@@ -12,10 +13,12 @@ let logFile: string;
 let session: GhciSession | undefined;
 const logs: string[] = [];
 
-function makeSession(boot = "BootTidal.hs", commandTimeoutMs = 2000) {
+function makeSession(boot = "BootTidal.hs", commandTimeoutMs = 2000, { create = true } = {}) {
+  const bootPath = path.join(tmpDir, boot);
+  if (create) writeFileSync(bootPath, "import Sound.Tidal.Context\n");
   session = new GhciSession({
     ghciPath: fakeGhci,
-    bootPath: path.join(tmpDir, boot),
+    bootPath,
     commandTimeoutMs,
     log: (m) => logs.push(m),
   });
@@ -55,8 +58,10 @@ test("starts, sets the prompt marker and runs commands", async () => {
   assert.equal(s.alive, true);
   assert.equal(await s.run('d1 $ s "bd"'), "");
   const sent = await received();
-  assert.deepEqual(sent.slice(0, 2), [':set prompt-cont ""', ':set prompt "<<tidal-mcp-ready>>\\n"']);
-  assert.equal(sent[2], 'd1 $ s "bd"');
+  assert.deepEqual(sent.slice(0, 3), [':set prompt-cont ""', ':set prompt "<<tidal-mcp-ready>>\\n"', ":t setcps"]);
+  assert.equal(sent[3], 'd1 $ s "bd"');
+  assert.equal(s.tidalVersion, "1.10.3");
+  assert.equal(s.ctrlAddress, "127.0.0.1:6011");
 });
 
 test("returns GHC errors as TidalError", async () => {
@@ -112,10 +117,34 @@ test("fails to start when BootTidal.hs doesn't load", async () => {
   assert.equal(s.alive, false);
 });
 
+test("fails to start when the boot file doesn't exist, without starting GHCi", async () => {
+  const s = makeSession("Missing.hs", 2000, { create: false });
+  await assert.rejects(s.start(), (e: Error) => e.message === `Boot file not found: ${path.join(tmpDir, "Missing.hs")}`);
+  assert.deepEqual(await received(), []);
+});
+
+test("a <no location info> error counts as a failed boot", async () => {
+  const s = makeSession("noloc-BootTidal.hs");
+  await assert.rejects(s.start(), /BootTidal.hs failed to load:\n<no location info>: error:[\s\S]*package database/);
+  assert.equal(s.alive, false);
+});
+
+test("a boot file that doesn't load Tidal fails with what it printed", async () => {
+  const s = makeSession("notidal-BootTidal.hs");
+  await assert.rejects(s.start(), /Tidal didn't load: setcps isn't defined[\s\S]*Boot output:\n[\s\S]*Loaded GHCi configuration/);
+  assert.equal(s.alive, false);
+});
+
+test("fails when another Tidal has the control port, instead of playing twice", async () => {
+  const s = makeSession("portbusy-BootTidal.hs");
+  await assert.rejects(s.start(), /control port \(127\.0\.0\.1:6011\) is in use/);
+  assert.equal(s.alive, false);
+});
+
 test("fails to start when ghci doesn't exist", async () => {
   session = new GhciSession({
     ghciPath: path.join(tmpDir, "no-such-ghci"),
-    bootPath: "BootTidal.hs",
+    bootPath: makeSession().options.bootPath,
     log: () => {},
   });
   await assert.rejects(session.start(), /Couldn't run .*no-such-ghci\. Set GHCI_PATH/);

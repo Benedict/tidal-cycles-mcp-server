@@ -78,6 +78,7 @@ test("lists all tools", async () => {
     "tidal_set_tempo",
     "tidal_silence",
     "tidal_solo",
+    "tidal_status",
     "tidal_unsolo",
   ]);
 });

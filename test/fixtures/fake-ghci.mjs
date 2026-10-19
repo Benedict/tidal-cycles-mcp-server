@@ -5,7 +5,9 @@
 //   - `:{ ... :}` groups lines into one statement
 //   - code containing BAD gets a GHC-style error on stderr
 //   - code containing HANG never gets a prompt; CRASH exits
-//   - a boot script whose path contains "broken" fails to load
+//   - a boot script whose path contains "broken" fails to load; "noloc" fails
+//     with a <no location info> error; "notidal" loads but leaves setcps
+//     undefined; "portbusy" finds Tidal's control port taken
 // Every statement received is appended to $FAKE_GHCI_LOG, one JSON string per line.
 // With FAKE_GHCI_CRLF=1 it ends lines with \r\n, as GHCi does on Windows.
 import { appendFileSync } from "node:fs";
@@ -29,6 +31,15 @@ let line = 1;
 if (boot.includes("broken")) {
   process.stderr.write(`${boot}:4:1: error: [GHC-87110]\n    Could not find module ‘Sound.Tidal.Context’\n\n`);
 }
+if (boot.includes("noloc")) {
+  process.stderr.write("<no location info>: error:\n    can't find a package database at /nowhere\n\n");
+}
+if (!boot.includes("notidal")) {
+  process.stdout.write("[TidalCycles version 1.10.3]\nListening for external controls on 127.0.0.1:6011\n");
+  if (boot.includes("portbusy")) {
+    process.stdout.write("That port isn't available, perhaps another Tidal instance is already listening on that port?\n");
+  }
+}
 process.stdout.write(`Loaded GHCi configuration from ${boot}\n`);
 process.stdout.write(prompt);
 
@@ -48,6 +59,8 @@ function statement(code) {
     process.exit(1);
   } else if (code.includes("HANG")) {
     return;
+  } else if (code === ":t setcps" && boot.includes("notidal")) {
+    process.stderr.write(`<interactive>:${line}:1: error: [GHC-88464]\n    Variable not in scope: setcps\n\n`);
   } else if (code.includes("BAD")) {
     process.stderr.write(
       `<interactive>:${line}:5: error: [GHC-88464]\n    Variable not in scope: BAD :: Pattern ValueMap\n\n`

@@ -1,4 +1,5 @@
 import { spawn, ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { ghciBlock } from "./commands.js";
 
 /**
@@ -22,7 +23,12 @@ export class TidalError extends Error {
   }
 }
 
-const ERROR_START = /^(?:<interactive>|.*?\.hs):\d+:\d+(?:-\d+)?: error:.*$|^\*\*\* Exception:.*$/gm;
+const ERROR_START = /^(?:<interactive>|.*?\.hs):\d+:\d+(?:-\d+)?: error:.*$|^<no location info>: error:.*$|^\*\*\* Exception:.*$/gm;
+
+// What Tidal prints at start-up when another Tidal already has its control port
+const CTRL_PORT_BUSY = /That port isn't available/;
+const CTRL_LISTENING = /Listening for external controls on (\S+)/;
+const TIDAL_VERSION = /\[TidalCycles version ([^\]]+)\]/;
 
 /**
  * Pulls the first GHC error or exception out of GHCi output, without the
@@ -43,6 +49,8 @@ export interface GhciOptions {
   bootPath: string;
   startupTimeoutMs?: number;
   commandTimeoutMs?: number;
+  /** Start even if another Tidal has the control port (for sessions that never play) */
+  allowBusyCtrlPort?: boolean;
   log?: (message: string) => void;
 }
 
@@ -62,19 +70,40 @@ export class GhciSession {
   private readonly commandTimeoutMs: number;
   private readonly log: (message: string) => void;
   alive = false;
+  /** What GHCi printed while booting, for diagnosing a failed start */
+  bootOutput = "";
+  /** From Tidal's start-up banner, once booted */
+  tidalVersion?: string;
+  /** The control port Tidal said it's listening on, once booted */
+  ctrlAddress?: string;
 
-  constructor(private options: GhciOptions) {
+  constructor(readonly options: GhciOptions) {
     this.startupTimeoutMs = options.startupTimeoutMs ?? 60_000;
     this.commandTimeoutMs = options.commandTimeoutMs ?? 10_000;
     this.log = options.log ?? ((m) => console.error(m));
   }
 
-  /** Starts GHCi and resolves once BootTidal.hs has loaded. */
-  start(): Promise<void> {
+  get pid(): number | undefined {
+    return this.child?.pid;
+  }
+
+  /**
+   * Starts GHCi and resolves once BootTidal.hs has loaded and Tidal is usable.
+   * Fails, saying why, if the boot file is missing or has errors, if Tidal's
+   * functions aren't defined afterwards, or if another Tidal has the control port.
+   */
+  async start(): Promise<void> {
     this.stop();
     this.buffer = "";
+    this.bootOutput = "";
+    this.tidalVersion = undefined;
+    this.ctrlAddress = undefined;
 
     const { ghciPath, bootPath } = this.options;
+    // GHCi silently skips a -ghci-script it can't find
+    if (!existsSync(bootPath)) {
+      throw new Error(`Boot file not found: ${bootPath}`);
+    }
     this.log(`[GHCI] Starting ${ghciPath} with ${bootPath}`);
 
     // Merge stderr into stdout in the shell, so GHC's errors stay in order with the prompt
@@ -126,15 +155,38 @@ export class GhciSession {
     child.stdin!.write(':set prompt-cont ""\n');
     child.stdin!.write(`:set prompt "${MARKER}\\n"\n`);
 
-    return ready.then((bootOutput) => {
-      const error = extractError(bootOutput);
-      if (error) {
-        this.stop();
-        throw new Error(`BootTidal.hs failed to load:\n${error}`);
-      }
-      this.alive = true;
-      this.log("[GHCI] Ready");
-    });
+    const bootOutput = await ready;
+    this.bootOutput = bootOutput.trim();
+    this.tidalVersion = bootOutput.match(TIDAL_VERSION)?.[1];
+    this.ctrlAddress = bootOutput.match(CTRL_LISTENING)?.[1];
+
+    const error = extractError(bootOutput);
+    if (error) {
+      this.stop();
+      throw new Error(`BootTidal.hs failed to load:\n${error}`);
+    }
+    if (CTRL_PORT_BUSY.test(bootOutput) && !this.options.allowBusyCtrlPort) {
+      this.stop();
+      throw new Error(
+        `Tidal's control port${this.ctrlAddress ? ` (${this.ctrlAddress})` : ""} is in use, so another Tidal is already running: ` +
+          `another copy of this server, or your editor's. Two Tidals would both play to SuperDirt. ` +
+          `Stop the other one, give this one a different cCtrlPort in its boot file, or share one session (TIDAL_SHARE_SESSION).`
+      );
+    }
+
+    // A boot file without Tidal in it loads without errors, but nothing works
+    this.alive = true;
+    try {
+      await this.exec(":t setcps");
+    } catch (error) {
+      this.stop();
+      if (!(error instanceof TidalError)) throw error;
+      throw new Error(
+        `Tidal didn't load: setcps isn't defined after running ${bootPath}. ` +
+          `Does it import Sound.Tidal.Context?\n\nBoot output:\n${this.bootOutput.slice(-2000)}`
+      );
+    }
+    this.log("[GHCI] Ready");
   }
 
   /**

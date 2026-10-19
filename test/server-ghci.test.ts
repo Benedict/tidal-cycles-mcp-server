@@ -52,6 +52,7 @@ let client: Client;
 before(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "tidal-mcp-ghci-test-"));
   logFile = path.join(tmpDir, "received.log");
+  await fs.writeFile(path.join(tmpDir, "BootTidal.hs"), "import Sound.Tidal.Context\n");
   client = await connect({});
 });
 
@@ -108,6 +109,7 @@ test("finds ghci and the boot file without PATH, despite stray spaces", { skip: 
   const ghci = path.join(home, ".ghcup", "bin", "ghci");
   await fs.mkdir(path.dirname(ghci), { recursive: true });
   await fs.writeFile(ghci, `#!/bin/sh\nexec "${process.execPath}" "${fakeGhci}" "$@"\n`, { mode: 0o755 });
+  await fs.writeFile(path.join(home, "BootTidal.hs"), "import Sound.Tidal.Context\n");
 
   const app = await connect({ PATH: "", HOME: home, GHCI_PATH: "", TIDAL_BOOT_PATH: " ~/BootTidal.hs " });
   const res = await call(app, "tidal_eval", { channel: "d3", pattern: 's "cp"' });
@@ -121,4 +123,46 @@ test("says where it looked when it can't find ghci", { skip: process.platform ==
   assert.equal(res.isError, true);
   assert.match(res.text, /Couldn't find ghci\. Looked in:/);
   assert.match(res.text, /empty-home\/\.ghcup\/bin\/ghci/);
+});
+
+test("Tidal starts on first use, not when the server starts", async () => {
+  const quietLog = path.join(tmpDir, "quiet.log");
+  const idle = await connect({ FAKE_GHCI_LOG: quietLog });
+  await idle.listTools();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(await fs.readFile(quietLog, "utf-8").catch(() => ""), "");
+
+  await call(idle, "tidal_eval", { channel: "d1", pattern: 's "bd"' });
+  assert.match(await fs.readFile(quietLog, "utf-8"), /d1 \$ s \\"bd\\"/);
+});
+
+test("tidal_status reports the resolved settings and that Tidal is running", async () => {
+  const { text } = await call(client, "tidal_status");
+  assert.match(text, /Mode: GHCi/);
+  assert.ok(text.includes(`ghci: ${fakeGhci}`), text);
+  assert.ok(text.includes(`Boot file: ${path.join(tmpDir, "BootTidal.hs")}\n`), text);
+  assert.match(text, /Tidal: running, version 1\.10\.3 \(GHCi process \d+\)/);
+  assert.match(text, /Control port: Tidal is listening on 127\.0\.0\.1:6011/);
+  assert.match(text, /Session log: /);
+});
+
+test("tidal_status shows why Tidal didn't start, with the paths as resolved", async () => {
+  await fs.writeFile(path.join(tmpDir, "notidal-BootTidal.hs"), "-- nothing\n");
+  const broken = await connect({ TIDAL_BOOT_PATH: ` ${path.join(tmpDir, "notidal-BootTidal.hs")} ` });
+  const { text } = await call(broken, "tidal_status");
+  assert.ok(text.includes(`Boot file: ${path.join(tmpDir, "notidal-BootTidal.hs")}\n`), text);
+  assert.match(text, /Tidal: not running\. Tidal didn't load: setcps isn't defined/);
+
+  const missing = await connect({ TIDAL_BOOT_PATH: path.join(tmpDir, "Nowhere.hs") });
+  const status = (await call(missing, "tidal_status")).text;
+  assert.match(status, /Boot file: .*Nowhere\.hs \(not found\)/);
+  assert.match(status, /Tidal: not running\. Boot file not found: .*Nowhere\.hs/);
+});
+
+test("a second Tidal on the same control port fails instead of playing too", async () => {
+  await fs.writeFile(path.join(tmpDir, "portbusy-BootTidal.hs"), "import Sound.Tidal.Context\n");
+  const second = await connect({ TIDAL_BOOT_PATH: path.join(tmpDir, "portbusy-BootTidal.hs") });
+  const res = await call(second, "tidal_eval", { channel: "d1", pattern: 's "bd"' });
+  assert.equal(res.isError, true);
+  assert.match(res.text, /control port \(127\.0\.0\.1:6011\) is in use/);
 });
