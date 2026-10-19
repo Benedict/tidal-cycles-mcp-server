@@ -667,7 +667,9 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: `✓ Evaluated on ${channel}:\n${fullPattern}\n\nPattern is now playing.${this.soundWarning(pattern)}`,
+          text: this.config.useGhci
+            ? `✓ Evaluated on ${channel}:\n${fullPattern}\n\nPattern is now playing.${this.soundWarning(pattern)}`
+            : `✓ Written to ${this.config.tidalFile}:\n${fullPattern}\n\n${this.inFile("hear it")}${this.soundWarning(pattern)}`,
         },
       ],
     };
@@ -798,6 +800,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         {
           type: "text",
           text: `✓ Set ${kind} layer "${name}" on ${channel}:\n${fullPattern}\n\nLayers:\n${describeLayers(updated)}` +
+            (this.config.useGhci ? "" : `\n\n${this.inFile("hear it")}`) +
             this.soundWarning([code, ...((variants as string[] | undefined) ?? [])].join("\n")),
         },
       ],
@@ -815,7 +818,12 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       // silence() clears the channel's layers
       await this.silence(channel);
       return {
-        content: [{ type: "text", text: `✓ Removed layer "${name}". ${channel} has no layers left and is silenced.` }],
+        content: [{
+          type: "text",
+          text: this.config.useGhci
+            ? `✓ Removed layer "${name}". ${channel} has no layers left and is silenced.`
+            : `✓ Removed layer "${name}". ${channel} has no layers left. ${this.inFile(`silence ${channel}`)}`,
+        }],
       };
     }
 
@@ -834,7 +842,8 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: `✓ Removed layer "${name}" from ${channel}:\n${fullPattern}\n\nLayers:\n${describeLayers(updated)}`,
+          text: `✓ Removed layer "${name}" from ${channel}:\n${fullPattern}\n\nLayers:\n${describeLayers(updated)}` +
+            (this.config.useGhci ? "" : `\n\n${this.inFile("hear it")}`),
         },
       ],
     };
@@ -866,7 +875,10 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
             {
               type: "text",
               text: `✓ Autopilot running: ${moving} layer(s) changing every ${s.minSeconds}–${s.maxSeconds}s, ` +
-                `lay-out chance ${s.layOutChance}.${note}`,
+                `lay-out chance ${s.layOutChance}.${note}` +
+                (this.config.useGhci
+                  ? ""
+                  : ` In file mode each change is only written to ${this.config.tidalFile}, so you hear a change when you evaluate it.`),
             },
           ],
         };
@@ -874,13 +886,20 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       case "pause": {
         this.autopilot.pause();
         await this.logAction("AUTOPILOT PAUSE");
-        return { content: [{ type: "text", text: "✓ Autopilot paused. Patterns keep playing." }] };
+        return { content: [{ type: "text", text: this.config.useGhci ? "✓ Autopilot paused. Patterns keep playing." : "✓ Autopilot paused." }] };
       }
       case "stop": {
         this.autopilot.stop();
         await this.logAction("AUTOPILOT STOP");
         await this.hush();
-        return { content: [{ type: "text", text: "✓ Autopilot stopped and everything hushed." }] };
+        return {
+          content: [{
+            type: "text",
+            text: this.config.useGhci
+              ? "✓ Autopilot stopped and everything hushed."
+              : `✓ Autopilot stopped. ${this.inFile("stop everything")}`,
+          }],
+        };
       }
       case "status": {
         const s = this.autopilot.getSettings();
@@ -899,6 +918,11 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     }
   }
 
+  /** In file mode nothing plays until the user evaluates the file, so replies say so. */
+  private inFile(action: string): string {
+    return `Written to ${this.config.tidalFile}. Evaluate it in your editor to ${action}.`;
+  }
+
   private async hush() {
     console.error(`[HUSH] Stopping all patterns`);
     this.autopilot.stop();
@@ -910,7 +934,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: "✓ All patterns stopped (hushed).",
+          text: this.config.useGhci ? "✓ All patterns stopped (hushed)." : `✓ ${this.inFile("stop everything")}`,
         },
       ],
     };
@@ -947,7 +971,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: `✓ Silenced ${channel}.`,
+          text: this.config.useGhci ? `✓ Silenced ${channel}.` : `✓ ${this.inFile(`silence ${channel}`)}`,
         },
       ],
     };
@@ -1240,6 +1264,9 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     let stateText = activeChannels.length > 0
       ? `Active channels:\n${activeChannels.join("\n")}`
       : "No active patterns.";
+    if (!this.config.useGhci && activeChannels.length > 0) {
+      stateText += `\n\n(File mode: this is what the server wrote to ${this.config.tidalFile}, not necessarily what your editor has run.)`;
+    }
     if (this.bpm !== undefined) {
       stateText += `\n\nTempo: ${this.bpm} BPM.`;
     }
@@ -1362,7 +1389,10 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     this.bpm = bpm;
     await this.logAction("TEMPO", `${bpm} BPM`);
     return {
-      content: [{ type: "text", text: `✓ Tempo set to ${bpm} BPM.` }],
+      content: [{
+        type: "text",
+        text: this.config.useGhci ? `✓ Tempo set to ${bpm} BPM.` : `✓ ${this.inFile(`set the tempo to ${bpm} BPM`)}`,
+      }],
     };
   }
 
@@ -1378,7 +1408,9 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: `✓ Soloed ${channel}. All other channels are muted.`,
+          text: this.config.useGhci
+            ? `✓ Soloed ${channel}. All other channels are muted.`
+            : `✓ ${this.inFile(`solo ${channel}`)}`,
         },
       ],
     };
@@ -1401,7 +1433,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       content: [
         {
           type: "text",
-          text: "✓ Unsolo applied. All channels restored.",
+          text: this.config.useGhci ? "✓ Unsolo applied. All channels restored." : `✓ ${this.inFile("unsolo")}`,
         },
       ],
     };
