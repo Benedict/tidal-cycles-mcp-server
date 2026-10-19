@@ -143,6 +143,7 @@ The pages listen on `127.0.0.1`. For an event where the audience opens the Strud
 | `tidal_solo` | `channel` | Runs `solo <n>` |
 | `tidal_unsolo` | — | Unsolos every channel that was soloed |
 | `tidal_get_state` | `quiet` (optional) | Lists what's playing on each channel, when it started, and the tempo. `quiet` skips logging, for clients that poll |
+| `tidal_status` | — | Shows the settings in use (ghci, boot file, as resolved), whether Tidal starts and its version, the control port, the last error and the log file. Starts Tidal in GHCi mode, so it reports whether it actually starts |
 | `tidal_set_tempo` | `bpm` | Sets the tempo, assuming four beats per cycle |
 | `tidal_get_history` | `limit` (default 10) | Lists recent patterns, newest first |
 | `tidal_set_layer` | `channel`, `name`, `kind`, `code`, `variants` (optional) | Adds or replaces one layer of a channel and re-evaluates it |
@@ -209,11 +210,17 @@ For the WebSocket transport and its settings, see [WEBSOCKET-USAGE.md](WEBSOCKET
 
 ## Troubleshooting
 
+Ask Claude to run `tidal_status` first. It shows the settings the server is actually using, and why Tidal didn't start.
+
 **`Couldn't find ghci`:** the error lists where the server looked. Set `GHCI_PATH` to the full path of `ghci`.
 
 **Nothing plays:**
 1. Check SuperDirt is running and shows `listening to Tidal on port 57120`.
-2. In GHCi mode, look in the client's MCP logs for `[GHCI]` lines. Startup problems, such as Tidal not being installed, show up there.
+2. In GHCi mode, Tidal starts with the first pattern, not with the server. `tidal_status` says whether it started.
+
+**`Tidal didn't load`:** GHCi ran the boot file, but Tidal's functions aren't defined afterwards. Check the boot file imports `Sound.Tidal.Context`, and that `ghci` is the one Tidal is installed for.
+
+**`Tidal's control port ... is in use`:** another Tidal is running, with the same `cCtrlPort`: your editor's, or another copy of this server. Two would both play to SuperDirt, so the server won't start a second. Stop the other one, use a boot file with a different `cCtrlPort`, or share one session with your editor (see above).
 
 **Sound keeps going after the server stops:** the server stops GHCi when it shuts down. If a GHCi process outlives it, run `pkill ghci`, or in SuperCollider run `s.freeAll`.
 

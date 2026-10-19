@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tidal_status`: the settings as the server resolved them, whether Tidal starts and its version, the control port, the last error and the log file
+
+### Changed
+- In GHCi mode, Tidal starts with the first tool call that needs it, not with the server. Claude Desktop can start a copy of the server it never uses, and that copy's Tidal played too
+
 ### Fixed
+- Tidal failing to start is reported when it happens, rather than as "setcps not in scope" on the first pattern: a missing boot file, a `<no location info>` GHC error, a boot file that doesn't load Tidal, or another Tidal already on the control port
 - Path settings ignore stray spaces and expand `~` and `${HOME}` (Claude Desktop passed `${HOME}` through unexpanded, so the session log couldn't be written)
 - With `GHCI_PATH` unset, `ghci` is found in ghcup's and Homebrew's folders when it isn't on `PATH`, as for apps started from the Dock; the error lists where it looked
 

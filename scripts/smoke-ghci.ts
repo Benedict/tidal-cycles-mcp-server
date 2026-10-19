@@ -25,7 +25,8 @@ await client.connect(
     env: {
       ...process.env,
       TIDAL_USE_GHCI: "true",
-      TIDAL_BOOT_PATH: path.join(root, "BootTidal.hs"),
+      // SMOKE_BOOT_PATH: a boot file with another cCtrlPort, if another Tidal has 6011
+      TIDAL_BOOT_PATH: process.env.SMOKE_BOOT_PATH || path.join(root, "BootTidal.hs"),
       TIDAL_FILE: path.join(tmpDir, "out.tidal"),
       // Sharing isn't available on Windows
       TIDAL_SHARE_SESSION: process.platform === "win32" ? "false" : "true",
@@ -45,6 +46,9 @@ async function check(label: string, name: string, args: Record<string, unknown>,
 }
 
 try {
+  await check("starts Tidal and reports it", "tidal_status", {}, {
+    error: false, text: /Tidal: running, version [\d.]+[\s\S]*Control port: Tidal is listening on /,
+  });
   await check("plays a pattern Tidal accepts", "tidal_eval", { channel: "d9", pattern: 's "~ ~"' }, { error: false });
   await check("returns a type error", "tidal_eval", { channel: "d9", pattern: "sound 3" }, {
     error: true,
@@ -58,7 +62,7 @@ try {
   }, { error: true, text: /not in scope: nope/ });
   await check("kept the accepted layers", "tidal_get_state", {}, { error: false, text: /source "beat": s "~ ~"(?![\s\S]*"fx")/ });
   await check("sends a control to Tidal's control port", "tidal_set_control", { name: "smoke", value: 1 }, {
-    error: false, text: /via 127\.0\.0\.1:6011/,
+    error: false, text: /via 127\.0\.0\.1:\d+/,
   });
 
   // Run the ghci wrapper the way Pulsar would: boot line, highlighted code, a bad line
