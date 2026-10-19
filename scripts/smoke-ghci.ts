@@ -32,6 +32,7 @@ await client.connect(
       // Sharing isn't available on Windows
       TIDAL_SHARE_SESSION: process.platform === "win32" ? "false" : "true",
       TIDAL_SHARE_DIR: path.join(tmpDir, "share"),
+      TIDAL_UPDATE_CHECK: "false",
     } as Record<string, string>,
     stderr: "ignore",
   })

@@ -8,9 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `tidal_status`: the settings as the server resolved them, whether Tidal starts and its version, the control port, the last error and the log file
+- `tidal_status`: the settings as the server resolved them, whether Tidal starts and its version, the control port, the last error and the log file, and whether a newer release is out (checked on npm at most once a day; `TIDAL_UPDATE_CHECK=false` turns it off)
 
 ### Changed
+- The README's install examples use `tidal-mcp-server@^1`, so restarting the client picks up new 1.x releases but never a 2.0
 - The session log is a `.tidal` file you can replay: each entry is the code that ran, under a `-- time` comment, with everything else commented out. Each session gets its own file in `tidal-mcp-sessions/` next to `TIDAL_FILE`, instead of overwriting `tidal-mcp-session.log`; `TIDAL_LOG_FILE` is now added to, not overwritten
 - In GHCi mode, Tidal starts with the first tool call that needs it, not with the server. Claude Desktop can start a copy of the server it never uses, and that copy's Tidal played too
 

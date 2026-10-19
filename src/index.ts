@@ -38,6 +38,7 @@ import {
 import { UiServer, composeStrudel } from "./ui.js";
 import { findGhci, pathSetting } from "./settings.js";
 import { SessionLog, sessionLogName } from "./session-log.js";
+import { checkForUpdate } from "./update-check.js";
 import {
   HUSH_COMMAND,
   assertNoBlockMarkers,
@@ -1145,7 +1146,26 @@ class TidalMCPServer {
     if (this.tidalLastError) lines.push(`Last error from Tidal: ${this.tidalLastError}`);
     lines.push(`Session log: ${this.log.file}`);
     if (this.ui) lines.push(`Web pages: ${this.ui.url}`);
+    lines.push(await this.updateStatus());
     return lines.join("\n");
+  }
+
+  /** One line on whether a newer release is out. TIDAL_UPDATE_CHECK=false skips it. */
+  private async updateStatus(): Promise<string> {
+    const setting = process.env.TIDAL_UPDATE_CHECK;
+    if (setting === "false" || setting === "0") return "Update check: off";
+    const update = await checkForUpdate({
+      current: VERSION,
+      cacheFile: path.join(defaultShareDir(), "update-check.json"),
+      // For tests
+      url: process.env.TIDAL_UPDATE_URL || undefined,
+    });
+    if (!update) return "Update check: couldn't reach npm";
+    if (!update.newer) return `Up to date (latest release is ${update.latest})`;
+    return (
+      `Update available: ${update.latest} (this is ${VERSION}). With npx and tidal-mcp-server@^1, restart the client to get it. ` +
+      `For Claude Desktop, install the new .mcpb from https://github.com/Benedict/tidal-cycles-mcp-server/releases/latest`
+    );
   }
 
   /** Everything the control page shows. */
