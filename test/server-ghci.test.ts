@@ -29,6 +29,8 @@ async function connect(env: Record<string, string>): Promise<Client> {
         GHCI_PATH: fakeGhci,
         FAKE_GHCI_LOG: logFile,
         TIDAL_UPDATE_CHECK: "false",
+        // Has the first-run marker, so replies don't start with the notice
+        TIDAL_SHARE_DIR: path.join(tmpDir, "share"),
         ...env,
       } as Record<string, string>,
       stderr: "ignore",
@@ -40,8 +42,8 @@ async function connect(env: Record<string, string>): Promise<Client> {
 
 async function call(client: Client, name: string, args: Record<string, unknown> = {}) {
   const result = await client.callTool({ name, arguments: args });
-  const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-  return { text, isError: result.isError === true };
+  const parts = (result.content as Array<{ type: string; text: string }>).map((c) => c.text);
+  return { text: parts.join("\n\n"), parts, isError: result.isError === true };
 }
 
 async function received(): Promise<string[]> {
@@ -55,6 +57,8 @@ before(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "tidal-mcp-ghci-test-"));
   logFile = path.join(tmpDir, "received.log");
   await fs.writeFile(path.join(tmpDir, "BootTidal.hs"), "import Sound.Tidal.Context\n");
+  await fs.mkdir(path.join(tmpDir, "share"));
+  await fs.writeFile(path.join(tmpDir, "share", "first-run-notice"), "");
   client = await connect({});
 });
 
@@ -199,4 +203,29 @@ test("tidal_status says when a newer release is out", async () => {
   } finally {
     registry.close();
   }
+});
+
+test("the first reply after installing says code runs on this computer, once", async () => {
+  const share = path.join(tmpDir, "first-run-share");
+  const first = await connect({ TIDAL_SHARE_DIR: share });
+  // A quiet poll doesn't use it up
+  assert.equal((await call(first, "tidal_get_state", { quiet: true })).parts.length, 1);
+  const reply = await call(first, "tidal_eval", { channel: "d1", pattern: 's "bd"' });
+  assert.equal(reply.isError, false);
+  assert.equal(reply.parts.length, 2);
+  assert.match(reply.parts[0], /shown once[\s\S]*runs here[\s\S]*any Haskell[\s\S]*TIDAL_USE_GHCI=false/);
+  assert.match(reply.parts[1], /d1/);
+  assert.equal((await call(first, "tidal_get_state")).parts.length, 1);
+
+  // Nor after a restart
+  const again = await connect({ TIDAL_SHARE_DIR: share });
+  assert.equal((await call(again, "tidal_status")).parts.length, 1);
+});
+
+test("file mode has no first-run notice, as nothing runs", async () => {
+  const share = path.join(tmpDir, "file-mode-share");
+  const fileMode = await connect({ TIDAL_SHARE_DIR: share, TIDAL_USE_GHCI: "false" });
+  const reply = await call(fileMode, "tidal_eval", { channel: "d1", pattern: 's "bd"' });
+  assert.equal(reply.parts.length, 1);
+  await assert.rejects(fs.access(path.join(share, "first-run-notice")));
 });

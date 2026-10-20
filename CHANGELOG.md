@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A one-time notice in GHCi mode, in the first reply after installing, that the code Claude sends runs on your computer; the Claude Desktop setting for GHCi mode says so too
 - `tidal_status`: the settings as the server resolved them, whether Tidal starts and its version, the control port, the last error and the log file, and whether a newer release is out (checked on npm at most once a day; `TIDAL_UPDATE_CHECK=false` turns it off)
 
 ### Changed

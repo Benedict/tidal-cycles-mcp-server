@@ -41,7 +41,7 @@ await client.connect(
 let failures = 0;
 async function check(label: string, name: string, args: Record<string, unknown>, expect: { error: boolean; text?: RegExp }) {
   const result = await client.callTool({ name, arguments: args });
-  const text = (result.content as Array<{ text: string }>)[0].text;
+  const text = (result.content as Array<{ text: string }>).map((c) => c.text).join("\n\n");
   const ok = (result.isError === true) === expect.error && (!expect.text || expect.text.test(text));
   if (!ok) failures++;
   console.log(`${ok ? "✓" : "✗"} ${label}${ok ? "" : `\n${text}\n`}`);
@@ -91,7 +91,7 @@ try {
 
   // The session log is meant to be replayed in an editor: every code block must be valid Tidal
   const status = await client.callTool({ name: "tidal_status", arguments: {} });
-  const logFile = (status.content as Array<{ text: string }>)[0].text.match(/Session log: (.*)/)![1];
+  const logFile = (status.content as Array<{ text: string }>).map((c) => c.text).join("\n\n").match(/Session log: (.*)/)![1];
   const blocks = (await fs.readFile(logFile, "utf-8")).trim().split(/\n\n/)
     .map((b) => b.split("\n").filter((l) => !l.startsWith("--")).join("\n"))
     .filter(Boolean);
