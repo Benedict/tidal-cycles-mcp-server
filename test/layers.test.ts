@@ -101,7 +101,10 @@ test("autopilot changes layers on their timers, and pause stops it", async () =>
 
   autopilot.start({ minSeconds: 0.01, maxSeconds: 0.01, layOutChance: 0 });
   assert.equal(autopilot.activeLayerCount(), 1);
-  await new Promise((r) => setTimeout(r, 80));
+  // Wait for two changes rather than a fixed time: Windows timers are coarse
+  // (about 15ms) and CI runners can stall, so 10ms timers fire late
+  const deadline = Date.now() + 5000;
+  while (changes.length < 2 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
   autopilot.pause();
   const count = changes.length;
   assert.ok(count >= 2, `expected several changes, got ${count}`);
