@@ -88,7 +88,7 @@ async function received(): Promise<string[]> {
 
 async function state(): Promise<string> {
   const result = await client.callTool({ name: "tidal_get_state", arguments: {} });
-  return (result.content as Array<{ text: string }>)[0].text;
+  return (result.content as Array<{ text: string }>).map((c) => c.text).join("\n\n");
 }
 
 before(async () => {

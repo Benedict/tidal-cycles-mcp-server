@@ -39,6 +39,7 @@ import { UiServer, composeStrudel } from "./ui.js";
 import { findGhci, pathSetting } from "./settings.js";
 import { SessionLog, sessionLogName } from "./session-log.js";
 import { checkForUpdate } from "./update-check.js";
+import { FIRST_RUN_NOTICE, claimFirstRun } from "./first-run.js";
 import {
   HUSH_COMMAND,
   assertNoBlockMarkers,
@@ -120,6 +121,8 @@ class TidalMCPServer {
   private tidalLastError?: string;
   /** Why Tidal last failed to start, until it next starts */
   private tidalStartError?: string;
+  /** Whether this process has already looked at the first-run notice */
+  private firstRunChecked = false;
   private strudelBlocks: Map<string, string> = new Map();
   private strudelBpm?: number;
   private strudelLastError?: string;
@@ -491,134 +494,138 @@ class TidalMCPServer {
     }));
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-
-      // Log all incoming tool calls
-      // Clients that poll the state can ask not to fill the log
-      const quiet = name === "tidal_get_state" && args?.quiet === true;
-      if (!quiet) {
-        console.error(`[TOOL CALL] ${name}`);
-        console.error(`[TOOL ARGS] ${JSON.stringify(args, null, 2)}`);
-      }
-
-      try {
-        if (!args) {
-          throw new Error("Missing arguments");
-        }
-
-        switch (name) {
-          case "tidal_eval": {
-            const result = await this.evalPattern(args.channel, args.pattern);
-            console.error(`[TOOL RESULT] tidal_eval: Success`);
-            return result;
-          }
-
-          case "tidal_hush": {
-            const result = await this.hush();
-            console.error(`[TOOL RESULT] tidal_hush: Success`);
-            return result;
-          }
-
-          case "tidal_silence": {
-            const result = await this.silence(args.channel);
-            console.error(`[TOOL RESULT] tidal_silence: Success`);
-            return result;
-          }
-
-          case "tidal_get_state": {
-            return await this.getState();
-          }
-
-          case "tidal_status": {
-            return { content: [{ type: "text", text: await this.status() }] };
-          }
-
-          case "tidal_set_tempo": {
-            const result = await this.setTempo(args.bpm);
-            console.error(`[TOOL RESULT] tidal_set_tempo: Success`);
-            return result;
-          }
-
-          case "tidal_solo": {
-            const result = await this.solo(args.channel);
-            console.error(`[TOOL RESULT] tidal_solo: Success`);
-            return result;
-          }
-
-          case "tidal_unsolo": {
-            const result = await this.unsolo();
-            console.error(`[TOOL RESULT] tidal_unsolo: Success`);
-            return result;
-          }
-
-          case "tidal_get_history": {
-            const result = await this.getHistory(args.limit as number | undefined);
-            console.error(`[TOOL RESULT] tidal_get_history: Success`);
-            return result;
-          }
-
-          case "tidal_set_layer": {
-            const result = await this.setChannelLayer(args);
-            console.error(`[TOOL RESULT] tidal_set_layer: Success`);
-            return result;
-          }
-
-          case "tidal_remove_layer": {
-            const result = await this.removeChannelLayer(args.channel, args.name);
-            console.error(`[TOOL RESULT] tidal_remove_layer: Success`);
-            return result;
-          }
-
-          case "tidal_autopilot": {
-            const result = await this.controlAutopilot(args);
-            console.error(`[TOOL RESULT] tidal_autopilot: Success`);
-            return result;
-          }
-
-          case "tidal_set_control": {
-            const result = await this.setControl(args.name, args.value, args.seconds);
-            console.error(`[TOOL RESULT] tidal_set_control: Success`);
-            return result;
-          }
-
-          case "tidal_list_samples": {
-            if (args.refresh === true) this.soundLibrary = undefined;
-            const filter = typeof args.filter === "string" ? args.filter : undefined;
-            return { content: [{ type: "text", text: describeLibrary(this.getSoundLibrary(), filter) }] };
-          }
-
-          case "strudel_set_block":
-          case "strudel_remove_block":
-          case "strudel_set_tempo":
-          case "strudel_hush":
-          case "strudel_get_state": {
-            const result = await this.strudelTool(name, args);
-            console.error(`[TOOL RESULT] ${name}: Success`);
-            return result;
-          }
-
-          case "tidal_palette": {
-            return { content: [{ type: "text", text: PALETTE }] };
-          }
-
-          default:
-            throw new Error(`Unknown tool: ${name}`);
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`[TOOL ERROR] ${name}: ${errorMessage}`);
-        console.error(`[TOOL ERROR] Stack:`, error instanceof Error ? error.stack : 'No stack trace');
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${errorMessage}`,
-            },
-          ],
-          isError: true,
-        };
-      }
+      const result = await this.callTool(request.params.name, request.params.arguments);
+      return this.withFirstRunNotice(request.params.name, request.params.arguments, result);
     });
+  }
+
+  private async callTool(name: string, args: Record<string, any> | undefined) {
+
+    // Log all incoming tool calls
+    // Clients that poll the state can ask not to fill the log
+    const quiet = name === "tidal_get_state" && args?.quiet === true;
+    if (!quiet) {
+      console.error(`[TOOL CALL] ${name}`);
+      console.error(`[TOOL ARGS] ${JSON.stringify(args, null, 2)}`);
+    }
+
+    try {
+      if (!args) {
+        throw new Error("Missing arguments");
+      }
+
+      switch (name) {
+        case "tidal_eval": {
+          const result = await this.evalPattern(args.channel, args.pattern);
+          console.error(`[TOOL RESULT] tidal_eval: Success`);
+          return result;
+        }
+
+        case "tidal_hush": {
+          const result = await this.hush();
+          console.error(`[TOOL RESULT] tidal_hush: Success`);
+          return result;
+        }
+
+        case "tidal_silence": {
+          const result = await this.silence(args.channel);
+          console.error(`[TOOL RESULT] tidal_silence: Success`);
+          return result;
+        }
+
+        case "tidal_get_state": {
+          return await this.getState();
+        }
+
+        case "tidal_status": {
+          return { content: [{ type: "text", text: await this.status() }] };
+        }
+
+        case "tidal_set_tempo": {
+          const result = await this.setTempo(args.bpm);
+          console.error(`[TOOL RESULT] tidal_set_tempo: Success`);
+          return result;
+        }
+
+        case "tidal_solo": {
+          const result = await this.solo(args.channel);
+          console.error(`[TOOL RESULT] tidal_solo: Success`);
+          return result;
+        }
+
+        case "tidal_unsolo": {
+          const result = await this.unsolo();
+          console.error(`[TOOL RESULT] tidal_unsolo: Success`);
+          return result;
+        }
+
+        case "tidal_get_history": {
+          const result = await this.getHistory(args.limit as number | undefined);
+          console.error(`[TOOL RESULT] tidal_get_history: Success`);
+          return result;
+        }
+
+        case "tidal_set_layer": {
+          const result = await this.setChannelLayer(args);
+          console.error(`[TOOL RESULT] tidal_set_layer: Success`);
+          return result;
+        }
+
+        case "tidal_remove_layer": {
+          const result = await this.removeChannelLayer(args.channel, args.name);
+          console.error(`[TOOL RESULT] tidal_remove_layer: Success`);
+          return result;
+        }
+
+        case "tidal_autopilot": {
+          const result = await this.controlAutopilot(args);
+          console.error(`[TOOL RESULT] tidal_autopilot: Success`);
+          return result;
+        }
+
+        case "tidal_set_control": {
+          const result = await this.setControl(args.name, args.value, args.seconds);
+          console.error(`[TOOL RESULT] tidal_set_control: Success`);
+          return result;
+        }
+
+        case "tidal_list_samples": {
+          if (args.refresh === true) this.soundLibrary = undefined;
+          const filter = typeof args.filter === "string" ? args.filter : undefined;
+          return { content: [{ type: "text", text: describeLibrary(this.getSoundLibrary(), filter) }] };
+        }
+
+        case "strudel_set_block":
+        case "strudel_remove_block":
+        case "strudel_set_tempo":
+        case "strudel_hush":
+        case "strudel_get_state": {
+          const result = await this.strudelTool(name, args);
+          console.error(`[TOOL RESULT] ${name}: Success`);
+          return result;
+        }
+
+        case "tidal_palette": {
+          return { content: [{ type: "text", text: PALETTE }] };
+        }
+
+        default:
+          throw new Error(`Unknown tool: ${name}`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[TOOL ERROR] ${name}: ${errorMessage}`);
+      console.error(`[TOOL ERROR] Stack:`, error instanceof Error ? error.stack : 'No stack trace');
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: ${errorMessage}`,
+          },
+        ],
+        isError: true,
+      };
+    }
   }
 
   private async evalPattern(channel: unknown, pattern: unknown) {
@@ -1148,6 +1155,23 @@ class TidalMCPServer {
     if (this.ui) lines.push(`Web pages: ${this.ui.url}`);
     lines.push(await this.updateStatus());
     return lines.join("\n");
+  }
+
+  /**
+   * Puts the first-run notice ahead of the first reply in GHCi mode. Skips
+   * quiet polls, which a person may never see.
+   */
+  private async withFirstRunNotice<T extends { content: { type: string; text: string }[] }>(
+    name: string,
+    args: Record<string, any> | undefined,
+    result: T
+  ): Promise<T> {
+    if (!this.config.useGhci || this.firstRunChecked) return result;
+    if (name === "tidal_get_state" && args?.quiet === true) return result;
+    this.firstRunChecked = true;
+    if (!(await claimFirstRun(path.join(defaultShareDir(), "first-run-notice")))) return result;
+    console.error(FIRST_RUN_NOTICE);
+    return { ...result, content: [{ type: "text", text: FIRST_RUN_NOTICE }, ...result.content] };
   }
 
   /** One line on whether a newer release is out. TIDAL_UPDATE_CHECK=false skips it. */

@@ -92,7 +92,7 @@ const manifest = {
     use_ghci: {
       type: "boolean",
       title: "Run Tidal for me",
-      description: "Start Tidal (GHCi) inside the server, so Claude gets Tidal's errors back. Turn off to only write code to a file for your editor to run.",
+      description: "Start Tidal (GHCi) inside the server, so Claude gets Tidal's errors back. Warning: the code Claude sends then runs on this computer with your permissions, and GHCi runs any Haskell, not only patterns. Turn off to only write code to a file, for you to check and run in your editor.",
       default: true,
     },
     ghci_path: {

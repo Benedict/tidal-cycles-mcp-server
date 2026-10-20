@@ -94,6 +94,8 @@ claude mcp add tidal \
 
 If you leave out `GHCI_PATH`, the server looks for `ghci` on its `PATH`, then where ghcup and Homebrew install it (`~/.ghcup/bin`, `/opt/homebrew/bin`, `/usr/local/bin`; `C:\ghcup\bin` on Windows). Apps started from the Dock or Start menu don't get your shell's `PATH`, so if your `ghci` is somewhere else, set `GHCI_PATH` (`which ghci`, or `where ghci` on Windows, tells you where it is). Path settings can start with `~`.
 
+> **Code runs on your computer.** In GHCi mode the code Claude sends runs straight away, with your permissions. Tidal code is Haskell, and GHCi runs any Haskell, not only patterns, including code that reads or changes your files. The server says so once, in its first reply after you install it. If you'd rather read code before it runs, use file mode.
+
 The server boots Tidal with the `BootTidal.hs` it ships with. To use your own instead, for example the one your editor uses, set `TIDAL_BOOT_PATH`.
 
 ### Playing alongside Claude in your editor
