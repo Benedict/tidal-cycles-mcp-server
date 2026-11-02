@@ -1,6 +1,6 @@
 {
   "name": "tidal-mcp-server",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "MCP server for TidalCycles live coding - enables Claude AI to control Tidal through conversational interaction",
   "type": "module",
   "main": "dist/index.js",

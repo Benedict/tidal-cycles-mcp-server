@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-11-02
 
 ### Added
 - A one-time notice in GHCi mode, in the first reply after installing, that the code Claude sends runs on your computer; the Claude Desktop setting for GHCi mode says so too
@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In GHCi mode, Tidal starts with the first tool call that needs it, not with the server. Claude Desktop can start a copy of the server it never uses, and that copy's Tidal played too
 
 ### Fixed
+- Dependencies: body-parser 2.4.0 and fast-uri 3.1.9, for new security advisories
 - Tidal failing to start is reported when it happens, rather than as "setcps not in scope" on the first pattern: a missing boot file, a `<no location info>` GHC error, a boot file that doesn't load Tidal, or another Tidal already on the control port
 - Code containing a line that is just `:{` or `:}` is rejected. Such a line ended the server's `:{ ... :}` block, and what followed ran as GHCi commands (`:!` runs shell commands) outside what the server tracks
 - In file mode, replies say the code was written to the file and needs evaluating, instead of "Pattern is now playing" and the like, which Claude passed on as fact
