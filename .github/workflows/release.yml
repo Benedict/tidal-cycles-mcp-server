@@ -3,10 +3,8 @@ name: Release
 # Publishes to npm, and creates a GitHub release with the Claude Desktop
 # bundle (.mcpb) attached, when a version tag (e.g. v1.1.0) is pushed.
 #
-# Authentication, in the order npm tries them:
-#   1. Trusted publishing: on npmjs.com, add this repo and release.yml as a
-#      trusted publisher for the package. No secret needed.
-#   2. An NPM_TOKEN repository secret with publish rights.
+# Authentication is trusted publishing: on npmjs.com, this repo and release.yml
+# are the package's trusted publisher, with no environment. No secret needed.
 
 on:
   push:
@@ -54,12 +52,11 @@ jobs:
           echo "Already on npm; skipping publish."
         fi
 
-    # prepublishOnly builds and runs the tests first
+    # prepublishOnly builds and runs the tests first. When trusted publishing
+    # is refused npm only says ENEEDAUTH; the reason is in the verbose log.
     - name: Publish
       if: steps.published.outputs.already != 'true'
-      run: npm publish --provenance --access public
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      run: npm publish --provenance --access public --loglevel verbose
 
   github-release:
     needs: publish
